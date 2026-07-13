@@ -46,18 +46,26 @@
                 <div id="maxLean" class="metricValue">0.0°</div>
             </div>
 
-            <div class="metricCard mutedMetric">
+            <div class="metricCard">
                 <div class="cardLabel">ACCEL G</div>
-                <div class="metricValue">--</div>
-                <div class="comingSoon">Coming next</div>
+                <div id="accelG" class="metricValue">--</div>
+                <div class="peakLine">
+                    MAX <span id="maxAccelG">0.00 G</span>
+                </div>
             </div>
 
-            <div class="metricCard mutedMetric">
+            <div class="metricCard">
                 <div class="cardLabel">BRAKE G</div>
-                <div class="metricValue">--</div>
-                <div class="comingSoon">Coming next</div>
+                <div id="brakeG" class="metricValue">--</div>
+                <div class="peakLine">
+                    MAX <span id="maxBrakeG">0.00 G</span>
+                </div>
             </div>
         </section>
+
+        <div id="signedForwardG" class="signedGStatus">
+            Calibrate first
+        </div>
 
         <div class="buttonRow">
             <button id="startButton">
@@ -69,7 +77,7 @@
             </button>
 
             <button id="resetMaxButton">
-                Reset Max
+                Reset Peaks
             </button>
         </div>
 
@@ -227,7 +235,7 @@
 
     </main>
 
-    <script src="app.js?v=0.3.2-dev1"></script>
+    <script src="app.js?v=0.4.0-dev1"></script>
 
 </body>
 </html>

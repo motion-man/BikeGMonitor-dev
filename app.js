@@ -87,10 +87,29 @@ const resetMaxButton =
 const wakeLockStatusText =
     document.getElementById("wakeLockStatus");
 
+const accelGText =
+    document.getElementById("accelG");
+
+const brakeGText =
+    document.getElementById("brakeG");
+
+const maxAccelGText =
+    document.getElementById("maxAccelG");
+
+const maxBrakeGText =
+    document.getElementById("maxBrakeG");
+
+const signedForwardGText =
+    document.getElementById("signedForwardG");
+
 let sensorsStarted = false;
 let savedCalibration = null;
 let maximumLeanAngle = 0;
 let wakeLockSentinel = null;
+
+let filteredForwardG = 0;
+let maximumAccelG = 0;
+let maximumBrakeG = 0;
 
 let latestOrientation =
 {
@@ -300,6 +319,10 @@ function handleMotion(event)
 
     updateLeanAngle(
         event.accelerationIncludingGravity
+    );
+
+    updateForwardG(
+        event.acceleration
     );
 
     if (calibrationActive)
@@ -736,10 +759,141 @@ function updateLeanAngle(acceleration)
         "Calibrated bike lean";
 }
 
+
+function getBikeForwardVector()
+{
+    if (!savedCalibration)
+    {
+        return null;
+    }
+
+    const uprightGravity = normalizeVector(
+        savedCalibration.x,
+        savedCalibration.y,
+        savedCalibration.z
+    );
+
+    if (!uprightGravity)
+    {
+        return null;
+    }
+
+    /*
+     * Mounting rule:
+     * Phone is portrait, screen facing the rider, and the top edge
+     * points approximately toward the front of the motorcycle.
+     */
+    const screenTop = { x: 0, y: 1, z: 0 };
+
+    return normalizeObject(
+        subtractVector(
+            screenTop,
+            scaleVector(
+                uprightGravity,
+                dotProduct(screenTop, uprightGravity)
+            )
+        )
+    );
+}
+
+function updateForwardG(acceleration)
+{
+    if (!savedCalibration)
+    {
+        accelGText.textContent = "--";
+        brakeGText.textContent = "--";
+        signedForwardGText.textContent = "Calibrate first";
+        return;
+    }
+
+    if (!acceleration)
+    {
+        accelGText.textContent = "N/A";
+        brakeGText.textContent = "N/A";
+        signedForwardGText.textContent =
+            "Linear acceleration unavailable";
+        return;
+    }
+
+    const forward = getBikeForwardVector();
+
+    if (!forward)
+    {
+        accelGText.textContent = "N/A";
+        brakeGText.textContent = "N/A";
+        signedForwardGText.textContent =
+            "Unable to determine forward axis";
+        return;
+    }
+
+    const linearAccelerationG =
+    {
+        x: (acceleration.x ?? 0) / GRAVITY,
+        y: (acceleration.y ?? 0) / GRAVITY,
+        z: (acceleration.z ?? 0) / GRAVITY
+    };
+
+    const rawForwardG =
+        dotProduct(linearAccelerationG, forward);
+
+    /*
+     * Light smoothing reduces phone and handlebar vibration while
+     * preserving useful acceleration and braking response.
+     */
+    const smoothing = 0.18;
+
+    filteredForwardG =
+        filteredForwardG +
+        smoothing * (rawForwardG - filteredForwardG);
+
+    const deadband = 0.015;
+
+    if (Math.abs(filteredForwardG) < deadband)
+    {
+        filteredForwardG = 0;
+    }
+
+    const accelerationG =
+        Math.max(0, filteredForwardG);
+
+    const brakingG =
+        Math.max(0, -filteredForwardG);
+
+    accelGText.textContent =
+        accelerationG.toFixed(2) + " G";
+
+    brakeGText.textContent =
+        brakingG.toFixed(2) + " G";
+
+    signedForwardGText.textContent =
+        "Signed forward G: " +
+        (filteredForwardG >= 0 ? "+" : "") +
+        filteredForwardG.toFixed(3);
+
+    if (accelerationG > maximumAccelG)
+    {
+        maximumAccelG = accelerationG;
+        maxAccelGText.textContent =
+            maximumAccelG.toFixed(2) + " G";
+    }
+
+    if (brakingG > maximumBrakeG)
+    {
+        maximumBrakeG = brakingG;
+        maxBrakeGText.textContent =
+            maximumBrakeG.toFixed(2) + " G";
+    }
+}
+
 function resetMaximumLean()
 {
     maximumLeanAngle = 0;
+    maximumAccelG = 0;
+    maximumBrakeG = 0;
+
     maxLeanText.textContent = "0.0°";
+    maxAccelGText.textContent = "0.00 G";
+    maxBrakeGText.textContent = "0.00 G";
 }
 
 function normalizeVector(x, y, z)

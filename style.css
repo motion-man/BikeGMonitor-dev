@@ -266,3 +266,27 @@ h2
     font-weight: bold;
     color: #f1c75b;
 }
+
+
+.peakLine
+{
+    margin-top: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #aab4c0;
+}
+
+.peakLine span
+{
+    color: white;
+}
+
+.signedGStatus
+{
+    margin: 0 0 12px;
+    padding: 10px;
+    border-radius: 10px;
+    background: #15191e;
+    font-size: 15px;
+    color: #aab4c0;
+}
