@@ -548,5 +548,22 @@ function formatNumber(value, decimals)
 
 function detectDevice()
 {
-    return navigator.userAgent;
+    const ua = navigator.userAgent;
+
+    if (/Android/i.test(ua))
+    {
+        return "Android";
+    }
+
+    if (/iPhone/i.test(ua))
+    {
+        return "iPhone";
+    }
+
+    if (/iPad/i.test(ua))
+    {
+        return "iPad";
+    }
+
+    return "Unknown";
 }
