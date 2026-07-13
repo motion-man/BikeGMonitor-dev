@@ -291,6 +291,8 @@ function updateRotationRate(rotationRate)
 
 function handleOrientation(event)
 {
+    summaryOrientationText.textContent = "Working";
+
     latestOrientation.alpha =
         validNumberOrNull(event.alpha);
 
@@ -321,6 +323,7 @@ function updateSamplingInformation(interval)
     {
         intervalText.textContent = "N/A";
         rateText.textContent = "N/A";
+        summaryRateText.textContent = "N/A";
         return;
     }
 
@@ -329,6 +332,7 @@ function updateSamplingInformation(interval)
     const frequency = 1000 / interval;
 
     rateText.textContent = frequency.toFixed(1);
+    summaryRateText.textContent = frequency.toFixed(1) + " Hz";
 }
 
 function startCalibration()
@@ -443,6 +447,7 @@ function finishCalibration()
         );
 
         displayCalibration(calibration);
+        summaryCalibrationText.textContent = "Saved";
 
         calibrationStatusText.textContent =
             "Calibration complete and saved";
@@ -485,6 +490,7 @@ function loadSavedCalibration()
         }
 
         displayCalibration(calibration);
+        summaryCalibrationText.textContent = "Saved";
 
         calibrationStatusText.textContent =
             "Saved calibration loaded";
@@ -538,8 +544,9 @@ function formatNumber(value, decimals)
     }
 
     return value.toFixed(decimals);
-	
-	function detectDevice()
+}
+
+function detectDevice()
 {
     const ua = navigator.userAgent;
 
@@ -559,5 +566,5 @@ function formatNumber(value, decimals)
     }
 
     return "Unknown";
-}
+
 }

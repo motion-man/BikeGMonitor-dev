@@ -86,35 +86,6 @@ button:disabled
     color: white;
 }
 
-<section>
-    <h2>Test Summary</h2>
-
-    <div class="reading">
-        Motion sensor:
-        <span id="summaryMotion">Not started</span>
-    </div>
-
-    <div class="reading">
-        Orientation sensor:
-        <span id="summaryOrientation">Not started</span>
-    </div>
-
-    <div class="reading">
-        Calibration:
-        <span id="summaryCalibration">Not saved</span>
-    </div>
-
-    <div class="reading">
-        Sample rate:
-        <span id="summaryRate">N/A</span>
-    </div>
-
-    <div class="reading">
-        Device:
-        <span id="summaryDevice">Unknown</span>
-    </div>
-</section>
-
 section
 {
     width: 100%;
