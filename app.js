@@ -653,11 +653,11 @@ function updateLeanAngle(acceleration)
     }
     else if (signedAngle > 0)
     {
-        leanDirectionText.textContent = "RIGHT";
+        leanDirectionText.textContent = "LEFT";
     }
     else
     {
-        leanDirectionText.textContent = "LEFT";
+        leanDirectionText.textContent = "RIGHT";
     }
 
     if (absoluteAngle > maximumLeanAngle)
