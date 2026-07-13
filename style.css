@@ -34,16 +34,56 @@ h2
     color: cyan;
 }
 
+#calibrationStatus
+{
+    max-width: 520px;
+    margin: 2px auto 18px;
+    padding: 12px;
+
+    border-radius: 10px;
+    background: #292929;
+
+    font-size: 18px;
+    color: #f1c75b;
+}
+
+.buttonRow
+{
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+
+    margin-bottom: 14px;
+}
+
 button
 {
-    margin-bottom: 18px;
-    padding: 16px 32px;
+    min-width: 180px;
+    padding: 16px 24px;
 
     border: 0;
     border-radius: 12px;
 
-    font-size: 24px;
+    font-size: 22px;
     font-weight: bold;
+}
+
+button:disabled
+{
+    opacity: 0.45;
+}
+
+#startButton
+{
+    background: #38b66c;
+    color: white;
+}
+
+#calibrateButton
+{
+    background: #e29325;
+    color: white;
 }
 
 section

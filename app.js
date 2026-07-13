@@ -1,7 +1,13 @@
 const GRAVITY = 9.80665;
+const CALIBRATION_SAMPLE_COUNT = 100;
+const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV1";
 
 const startButton = document.getElementById("startButton");
+const calibrateButton = document.getElementById("calibrateButton");
+
 const statusText = document.getElementById("status");
+const calibrationStatusText =
+    document.getElementById("calibrationStatus");
 
 const xText = document.getElementById("x");
 const yText = document.getElementById("y");
@@ -30,12 +36,50 @@ const orientationBetaText =
 const orientationGammaText =
     document.getElementById("orientationGamma");
 
+const calibrationXText =
+    document.getElementById("calibrationX");
+
+const calibrationYText =
+    document.getElementById("calibrationY");
+
+const calibrationZText =
+    document.getElementById("calibrationZ");
+
+const calibrationBetaText =
+    document.getElementById("calibrationBeta");
+
+const calibrationGammaText =
+    document.getElementById("calibrationGamma");
+
 const intervalText = document.getElementById("interval");
 const rateText = document.getElementById("rate");
 
 let sensorsStarted = false;
 
+let latestOrientation =
+{
+    alpha: null,
+    beta: null,
+    gamma: null
+};
+
+let calibrationActive = false;
+let calibrationSampleCount = 0;
+
+let calibrationTotals =
+{
+    x: 0,
+    y: 0,
+    z: 0,
+    beta: 0,
+    gamma: 0,
+    orientationSamples: 0
+};
+
 startButton.addEventListener("click", startSensors);
+calibrateButton.addEventListener("click", startCalibration);
+
+loadSavedCalibration();
 
 async function startSensors()
 {
@@ -91,8 +135,11 @@ async function startSensors()
         sensorsStarted = true;
 
         statusText.textContent = "Sensors running";
+
         startButton.textContent = "Sensors Active";
         startButton.disabled = true;
+
+        calibrateButton.disabled = false;
     }
     catch (error)
     {
@@ -150,6 +197,13 @@ function handleMotion(event)
     updateSamplingInformation(
         event.interval
     );
+
+    if (calibrationActive)
+    {
+        collectCalibrationSample(
+            event.accelerationIncludingGravity
+        );
+    }
 }
 
 function updateAccelerationIncludingGravity(acceleration)
@@ -220,6 +274,15 @@ function updateRotationRate(rotationRate)
 
 function handleOrientation(event)
 {
+    latestOrientation.alpha =
+        validNumberOrNull(event.alpha);
+
+    latestOrientation.beta =
+        validNumberOrNull(event.beta);
+
+    latestOrientation.gamma =
+        validNumberOrNull(event.gamma);
+
     orientationAlphaText.textContent =
         formatNumber(event.alpha, 1);
 
@@ -249,6 +312,202 @@ function updateSamplingInformation(interval)
     const frequency = 1000 / interval;
 
     rateText.textContent = frequency.toFixed(1);
+}
+
+function startCalibration()
+{
+    if (!sensorsStarted || calibrationActive)
+    {
+        return;
+    }
+
+    calibrationActive = true;
+    calibrationSampleCount = 0;
+
+    calibrationTotals =
+    {
+        x: 0,
+        y: 0,
+        z: 0,
+        beta: 0,
+        gamma: 0,
+        orientationSamples: 0
+    };
+
+    calibrateButton.disabled = true;
+    calibrateButton.textContent = "Calibrating...";
+
+    calibrationStatusText.textContent =
+        "Hold the bike upright and stationary";
+}
+
+function collectCalibrationSample(acceleration)
+{
+    if (!acceleration)
+    {
+        return;
+    }
+
+    const x = validNumberOrNull(acceleration.x);
+    const y = validNumberOrNull(acceleration.y);
+    const z = validNumberOrNull(acceleration.z);
+
+    if (x === null || y === null || z === null)
+    {
+        return;
+    }
+
+    calibrationTotals.x += x / GRAVITY;
+    calibrationTotals.y += y / GRAVITY;
+    calibrationTotals.z += z / GRAVITY;
+
+    calibrationSampleCount++;
+
+    if (
+        latestOrientation.beta !== null &&
+        latestOrientation.gamma !== null
+    )
+    {
+        calibrationTotals.beta += latestOrientation.beta;
+        calibrationTotals.gamma += latestOrientation.gamma;
+        calibrationTotals.orientationSamples++;
+    }
+
+    calibrationStatusText.textContent =
+        "Hold still: " +
+        calibrationSampleCount +
+        " / " +
+        CALIBRATION_SAMPLE_COUNT;
+
+    if (
+        calibrationSampleCount >=
+        CALIBRATION_SAMPLE_COUNT
+    )
+    {
+        finishCalibration();
+    }
+}
+
+function finishCalibration()
+{
+    const calibration =
+    {
+        x: calibrationTotals.x /
+            calibrationSampleCount,
+
+        y: calibrationTotals.y /
+            calibrationSampleCount,
+
+        z: calibrationTotals.z /
+            calibrationSampleCount,
+
+        beta: null,
+        gamma: null,
+
+        savedAt: new Date().toISOString()
+    };
+
+    if (calibrationTotals.orientationSamples > 0)
+    {
+        calibration.beta =
+            calibrationTotals.beta /
+            calibrationTotals.orientationSamples;
+
+        calibration.gamma =
+            calibrationTotals.gamma /
+            calibrationTotals.orientationSamples;
+    }
+
+    try
+    {
+        localStorage.setItem(
+            CALIBRATION_STORAGE_KEY,
+            JSON.stringify(calibration)
+        );
+
+        displayCalibration(calibration);
+
+        calibrationStatusText.textContent =
+            "Calibration complete and saved";
+    }
+    catch (error)
+    {
+        calibrationStatusText.textContent =
+            "Calibration complete, but could not be saved";
+    }
+
+    calibrationActive = false;
+
+    calibrateButton.disabled = false;
+    calibrateButton.textContent = "Calibrate";
+}
+
+function loadSavedCalibration()
+{
+    try
+    {
+        const savedValue =
+            localStorage.getItem(
+                CALIBRATION_STORAGE_KEY
+            );
+
+        if (!savedValue)
+        {
+            return;
+        }
+
+        const calibration = JSON.parse(savedValue);
+
+        if (
+            typeof calibration.x !== "number" ||
+            typeof calibration.y !== "number" ||
+            typeof calibration.z !== "number"
+        )
+        {
+            return;
+        }
+
+        displayCalibration(calibration);
+
+        calibrationStatusText.textContent =
+            "Saved calibration loaded";
+    }
+    catch (error)
+    {
+        calibrationStatusText.textContent =
+            "Saved calibration could not be loaded";
+    }
+}
+
+function displayCalibration(calibration)
+{
+    calibrationXText.textContent =
+        formatNumber(calibration.x, 3);
+
+    calibrationYText.textContent =
+        formatNumber(calibration.y, 3);
+
+    calibrationZText.textContent =
+        formatNumber(calibration.z, 3);
+
+    calibrationBetaText.textContent =
+        formatNumber(calibration.beta, 1);
+
+    calibrationGammaText.textContent =
+        formatNumber(calibration.gamma, 1);
+}
+
+function validNumberOrNull(value)
+{
+    if (
+        typeof value !== "number" ||
+        !Number.isFinite(value)
+    )
+    {
+        return null;
+    }
+
+    return value;
 }
 
 function formatNumber(value, decimals)
