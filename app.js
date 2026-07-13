@@ -1,6 +1,8 @@
 const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV1";
+const TELEMETRY_FORMAT_VERSION = "1.0";
+const APP_VERSION = "0.5.2-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -170,10 +172,16 @@ let gpsWatchId = null;
 let latestLatitude = null;
 let latestLongitude = null;
 let latestGpsAccuracyM = null;
+let latestGpsAltitudeM = null;
+let latestGpsAltitudeAccuracyM = null;
+let latestGpsHeadingDeg = null;
 let latestGpsTimestampMs = null;
 let latestSpeedKmh = 0;
 let maximumSpeedKmh = 0;
 let previousGpsFix = null;
+
+let recordedIntervalTotalMs = 0;
+let recordedIntervalCount = 0;
 
 let latestOrientation =
 {
@@ -401,7 +409,7 @@ function handleMotion(event)
 
     if (rideRecording)
     {
-        recordRideSample();
+        recordRideSample(event.interval);
     }
 }
 
@@ -879,6 +887,15 @@ function handleGpsPosition(position)
     latestGpsAccuracyM =
         validNumberOrNull(coordinates.accuracy);
 
+    latestGpsAltitudeM =
+        validNumberOrNull(coordinates.altitude);
+
+    latestGpsAltitudeAccuracyM =
+        validNumberOrNull(coordinates.altitudeAccuracy);
+
+    latestGpsHeadingDeg =
+        validNumberOrNull(coordinates.heading);
+
     latestGpsTimestampMs =
         validNumberOrNull(position.timestamp);
 
@@ -1124,6 +1141,9 @@ function startRideRecording()
     }
 
     rideSamples = [];
+    recordedIntervalTotalMs = 0;
+    recordedIntervalCount = 0;
+
     rideStartEpochMs = Date.now();
     rideStartPerformanceMs = performance.now();
     rideRecording = true;
@@ -1230,8 +1250,17 @@ function formatElapsedTime(elapsedMs)
     );
 }
 
-function recordRideSample()
+function recordRideSample(sensorIntervalMs)
 {
+    if (
+        typeof sensorIntervalMs === "number" &&
+        Number.isFinite(sensorIntervalMs) &&
+        sensorIntervalMs > 0
+    )
+    {
+        recordedIntervalTotalMs += sensorIntervalMs;
+        recordedIntervalCount++;
+    }
     const nowPerformanceMs = performance.now();
 
     const elapsedMs =
@@ -1280,6 +1309,15 @@ function recordRideSample()
 
             gps_accuracy_m:
                 latestGpsAccuracyM,
+
+            altitude_m:
+                latestGpsAltitudeM,
+
+            altitude_accuracy_m:
+                latestGpsAltitudeAccuracyM,
+
+            heading_deg:
+                latestGpsHeadingDeg,
 
             gps_timestamp_ms:
                 latestGpsTimestampMs,
@@ -1341,6 +1379,9 @@ function downloadRideCsv()
         "latitude",
         "longitude",
         "gps_accuracy_m",
+        "altitude_m",
+        "altitude_accuracy_m",
+        "heading_deg",
         "gps_timestamp_ms",
         "accel_gravity_x_ms2",
         "accel_gravity_y_ms2",
@@ -1356,10 +1397,50 @@ function downloadRideCsv()
         "orientation_gamma_deg"
     ];
 
-    const rows =
+    const averageSampleRateHz =
+        recordedIntervalCount > 0
+            ? 1000 /
+              (
+                  recordedIntervalTotalMs /
+                  recordedIntervalCount
+              )
+            : null;
+
+    const metadataRows =
     [
-        header.join(",")
+        ["metadata", "telemetry_format_version", TELEMETRY_FORMAT_VERSION],
+        ["metadata", "app_version", APP_VERSION],
+        ["metadata", "device", detectDevice()],
+        ["metadata", "user_agent", navigator.userAgent],
+        [
+            "metadata",
+            "ride_start_iso",
+            new Date(rideStartEpochMs).toISOString()
+        ],
+        [
+            "metadata",
+            "sample_count",
+            rideSamples.length
+        ],
+        [
+            "metadata",
+            "average_sample_rate_hz",
+            averageSampleRateHz === null
+                ? ""
+                : averageSampleRateHz.toFixed(3)
+        ],
+        []
     ];
+
+    const rows =
+        metadataRows.map(
+            function (row)
+            {
+                return row.map(csvValue).join(",");
+            }
+        );
+
+    rows.push(header.join(","));
 
     for (const sample of rideSamples)
     {
