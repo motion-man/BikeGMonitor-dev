@@ -54,6 +54,21 @@ const calibrationGammaText =
 const intervalText = document.getElementById("interval");
 const rateText = document.getElementById("rate");
 
+const summaryMotionText =
+    document.getElementById("summaryMotion");
+
+const summaryOrientationText =
+    document.getElementById("summaryOrientation");
+
+const summaryCalibrationText =
+    document.getElementById("summaryCalibration");
+
+const summaryRateText =
+    document.getElementById("summaryRate");
+
+const summaryDeviceText =
+    document.getElementById("summaryDevice");
+
 let sensorsStarted = false;
 
 let latestOrientation =
@@ -80,6 +95,7 @@ startButton.addEventListener("click", startSensors);
 calibrateButton.addEventListener("click", startCalibration);
 
 loadSavedCalibration();
+summaryDeviceText.textContent = detectDevice();
 
 async function startSensors()
 {
@@ -182,6 +198,7 @@ async function requestOrientationPermission()
 
 function handleMotion(event)
 {
+	summaryMotionText.textContent = "Working";
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
@@ -521,4 +538,26 @@ function formatNumber(value, decimals)
     }
 
     return value.toFixed(decimals);
+	
+	function detectDevice()
+{
+    const ua = navigator.userAgent;
+
+    if (/iPhone/i.test(ua))
+    {
+        return "iPhone";
+    }
+
+    if (/iPad/i.test(ua))
+    {
+        return "iPad";
+    }
+
+    if (/Android/i.test(ua))
+    {
+        return "Android";
+    }
+
+    return "Unknown";
+}
 }
