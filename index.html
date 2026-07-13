@@ -61,11 +61,58 @@
                     MAX <span id="maxBrakeG">0.00 G</span>
                 </div>
             </div>
+
+            <div class="metricCard">
+                <div class="cardLabel">SPEED</div>
+                <div id="speed" class="metricValue">--</div>
+                <div class="peakLine">
+                    MAX <span id="maxSpeed">0 km/h</span>
+                </div>
+            </div>
         </section>
 
         <div id="signedForwardG" class="signedGStatus">
             Calibrate first
         </div>
+
+        <div class="gpsStatusPanel">
+            <span id="gpsStatus">GPS not started</span>
+        </div>
+
+
+        <section class="rideRecorderCard">
+            <div class="cardLabel">RIDE RECORDER</div>
+
+            <div class="rideTimerRow">
+                <div>
+                    <div class="rideSmallLabel">TIME</div>
+                    <div id="rideTimer" class="rideTimer">
+                        00:00:00.0
+                    </div>
+                </div>
+
+                <div>
+                    <div class="rideSmallLabel">SAMPLES</div>
+                    <div id="sampleCount" class="sampleCount">
+                        0
+                    </div>
+                </div>
+            </div>
+
+            <div id="rideStatus" class="rideStatus">
+                Ready
+            </div>
+
+            <div class="rideButtonRow">
+                <button id="startRideButton">
+                    Start Ride
+                </button>
+
+                <button id="stopRideButton" disabled>
+                    Stop & Download
+                </button>
+            </div>
+        </section>
 
         <div class="buttonRow">
             <button id="startButton">
@@ -235,7 +282,7 @@
 
     </main>
 
-    <script src="app.js?v=0.4.0-dev1"></script>
+    <script src="app.js?v=0.5.1-dev1"></script>
 
 </body>
 </html>

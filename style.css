@@ -92,7 +92,7 @@ h1
 .metricGrid
 {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 10px;
     margin-bottom: 16px;
 }
@@ -282,6 +282,100 @@ h2
 }
 
 .signedGStatus
+{
+    margin: 0 0 12px;
+    padding: 10px;
+    border-radius: 10px;
+    background: #15191e;
+    font-size: 15px;
+    color: #aab4c0;
+}
+
+
+.rideRecorderCard
+{
+    margin: 0 0 16px;
+    padding: 18px;
+
+    background: #1b2027;
+    border: 1px solid #303843;
+    border-radius: 16px;
+}
+
+.rideTimerRow
+{
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+    align-items: center;
+    margin-top: 14px;
+}
+
+.rideSmallLabel
+{
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 1.2px;
+    color: #aab4c0;
+}
+
+.rideTimer
+{
+    margin-top: 6px;
+    font-size: 34px;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+}
+
+.sampleCount
+{
+    margin-top: 6px;
+    font-size: 30px;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+}
+
+.rideStatus
+{
+    margin: 14px 0;
+    padding: 10px;
+
+    border-radius: 10px;
+    background: #15191e;
+
+    font-size: 16px;
+    color: #f1c75b;
+}
+
+.rideButtonRow
+{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+#startRideButton
+{
+    background: #b72525;
+    color: white;
+}
+
+#stopRideButton
+{
+    background: #3a4654;
+    color: white;
+}
+
+@media (max-width: 470px)
+{
+    .rideButtonRow
+    {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+.gpsStatusPanel
 {
     margin: 0 0 12px;
     padding: 10px;

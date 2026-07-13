@@ -102,6 +102,30 @@ const maxBrakeGText =
 const signedForwardGText =
     document.getElementById("signedForwardG");
 
+const startRideButton =
+    document.getElementById("startRideButton");
+
+const stopRideButton =
+    document.getElementById("stopRideButton");
+
+const rideStatusText =
+    document.getElementById("rideStatus");
+
+const rideTimerText =
+    document.getElementById("rideTimer");
+
+const sampleCountText =
+    document.getElementById("sampleCount");
+
+const speedText =
+    document.getElementById("speed");
+
+const maxSpeedText =
+    document.getElementById("maxSpeed");
+
+const gpsStatusText =
+    document.getElementById("gpsStatus");
+
 let sensorsStarted = false;
 let savedCalibration = null;
 let maximumLeanAngle = 0;
@@ -110,6 +134,46 @@ let wakeLockSentinel = null;
 let filteredForwardG = 0;
 let maximumAccelG = 0;
 let maximumBrakeG = 0;
+
+let rideRecording = false;
+let rideStartEpochMs = 0;
+let rideStartPerformanceMs = 0;
+let rideSamples = [];
+let rideTimerInterval = null;
+
+let latestLeanAngle = 0;
+let latestLeanDirection = "UPRIGHT";
+let latestSignedForwardG = 0;
+
+let latestAccelerationIncludingGravity =
+{
+    x: null,
+    y: null,
+    z: null
+};
+
+let latestLinearAcceleration =
+{
+    x: null,
+    y: null,
+    z: null
+};
+
+let latestRotationRate =
+{
+    alpha: null,
+    beta: null,
+    gamma: null
+};
+
+let gpsWatchId = null;
+let latestLatitude = null;
+let latestLongitude = null;
+let latestGpsAccuracyM = null;
+let latestGpsTimestampMs = null;
+let latestSpeedKmh = 0;
+let maximumSpeedKmh = 0;
+let previousGpsFix = null;
 
 let latestOrientation =
 {
@@ -134,6 +198,8 @@ let calibrationTotals =
 startButton.addEventListener("click", startSensors);
 calibrateButton.addEventListener("click", startCalibration);
 resetMaxButton.addEventListener("click", resetMaximumLean);
+startRideButton.addEventListener("click", startRideRecording);
+stopRideButton.addEventListener("click", stopRideRecording);
 
 loadSavedCalibration();
 summaryDeviceText.textContent = detectDevice();
@@ -204,6 +270,7 @@ async function startSensors()
         calibrateButton.disabled = false;
 
         await requestScreenWakeLock();
+        startGpsTracking();
     }
     catch (error)
     {
@@ -330,6 +397,11 @@ function handleMotion(event)
         collectCalibrationSample(
             event.accelerationIncludingGravity
         );
+    }
+
+    if (rideRecording)
+    {
+        recordRideSample();
     }
 }
 
@@ -732,19 +804,24 @@ function updateLeanAngle(acceleration)
 
     const absoluteAngle = Math.abs(signedAngle);
 
+    latestLeanAngle = absoluteAngle;
+
     leanAngleText.textContent =
         absoluteAngle.toFixed(1) + "°";
 
     if (absoluteAngle < 0.8)
     {
+        latestLeanDirection = "UPRIGHT";
         leanDirectionText.textContent = "UPRIGHT";
     }
     else if (signedAngle > 0)
     {
+        latestLeanDirection = "LEFT";
         leanDirectionText.textContent = "LEFT";
     }
     else
     {
+        latestLeanDirection = "RIGHT";
         leanDirectionText.textContent = "RIGHT";
     }
 
@@ -759,6 +836,640 @@ function updateLeanAngle(acceleration)
         "Calibrated bike lean";
 }
 
+
+
+
+function startGpsTracking()
+{
+    if (!("geolocation" in navigator))
+    {
+        gpsStatusText.textContent = "GPS not supported";
+        return;
+    }
+
+    if (gpsWatchId !== null)
+    {
+        return;
+    }
+
+    gpsStatusText.textContent = "Requesting location";
+
+    gpsWatchId =
+        navigator.geolocation.watchPosition(
+            handleGpsPosition,
+            handleGpsError,
+            {
+                enableHighAccuracy: true,
+                maximumAge: 1000,
+                timeout: 15000
+            }
+        );
+}
+
+function handleGpsPosition(position)
+{
+    const coordinates = position.coords;
+
+    latestLatitude =
+        validNumberOrNull(coordinates.latitude);
+
+    latestLongitude =
+        validNumberOrNull(coordinates.longitude);
+
+    latestGpsAccuracyM =
+        validNumberOrNull(coordinates.accuracy);
+
+    latestGpsTimestampMs =
+        validNumberOrNull(position.timestamp);
+
+    let speedKmh = null;
+
+    if (
+        typeof coordinates.speed === "number" &&
+        Number.isFinite(coordinates.speed) &&
+        coordinates.speed >= 0
+    )
+    {
+        speedKmh = coordinates.speed * 3.6;
+    }
+    else
+    {
+        speedKmh =
+            deriveGpsSpeedKmh(
+                latestLatitude,
+                latestLongitude,
+                latestGpsTimestampMs
+            );
+    }
+
+    if (
+        typeof speedKmh === "number" &&
+        Number.isFinite(speedKmh) &&
+        speedKmh >= 0
+    )
+    {
+        /*
+         * Suppress normal stationary GPS wander.
+         */
+        latestSpeedKmh =
+            speedKmh < 1.5 ? 0 : speedKmh;
+
+        speedText.textContent =
+            latestSpeedKmh.toFixed(0) + " km/h";
+
+        if (latestSpeedKmh > maximumSpeedKmh)
+        {
+            maximumSpeedKmh = latestSpeedKmh;
+
+            maxSpeedText.textContent =
+                maximumSpeedKmh.toFixed(0) + " km/h";
+        }
+    }
+
+    if (
+        typeof latestGpsAccuracyM === "number" &&
+        Number.isFinite(latestGpsAccuracyM)
+    )
+    {
+        gpsStatusText.textContent =
+            "GPS active — accuracy " +
+            latestGpsAccuracyM.toFixed(0) +
+            " m";
+    }
+    else
+    {
+        gpsStatusText.textContent = "GPS active";
+    }
+
+    previousGpsFix =
+    {
+        latitude: latestLatitude,
+        longitude: latestLongitude,
+        timestampMs: latestGpsTimestampMs
+    };
+}
+
+function deriveGpsSpeedKmh(
+    latitude,
+    longitude,
+    timestampMs
+)
+{
+    if (
+        previousGpsFix === null ||
+        latitude === null ||
+        longitude === null ||
+        timestampMs === null
+    )
+    {
+        return null;
+    }
+
+    const elapsedSeconds =
+        (timestampMs - previousGpsFix.timestampMs) /
+        1000;
+
+    if (
+        !Number.isFinite(elapsedSeconds) ||
+        elapsedSeconds <= 0
+    )
+    {
+        return null;
+    }
+
+    const distanceMetres =
+        haversineDistanceMetres(
+            previousGpsFix.latitude,
+            previousGpsFix.longitude,
+            latitude,
+            longitude
+        );
+
+    if (!Number.isFinite(distanceMetres))
+    {
+        return null;
+    }
+
+    return (distanceMetres / elapsedSeconds) * 3.6;
+}
+
+function haversineDistanceMetres(
+    latitude1,
+    longitude1,
+    latitude2,
+    longitude2
+)
+{
+    const earthRadiusMetres = 6371000;
+
+    const lat1 = latitude1 * Math.PI / 180;
+    const lat2 = latitude2 * Math.PI / 180;
+
+    const deltaLatitude =
+        (latitude2 - latitude1) *
+        Math.PI /
+        180;
+
+    const deltaLongitude =
+        (longitude2 - longitude1) *
+        Math.PI /
+        180;
+
+    const a =
+        Math.sin(deltaLatitude / 2) *
+        Math.sin(deltaLatitude / 2) +
+        Math.cos(lat1) *
+        Math.cos(lat2) *
+        Math.sin(deltaLongitude / 2) *
+        Math.sin(deltaLongitude / 2);
+
+    const c =
+        2 *
+        Math.atan2(
+            Math.sqrt(a),
+            Math.sqrt(1 - a)
+        );
+
+    return earthRadiusMetres * c;
+}
+
+function handleGpsError(error)
+{
+    latestSpeedKmh = 0;
+    speedText.textContent = "--";
+
+    switch (error.code)
+    {
+        case error.PERMISSION_DENIED:
+            gpsStatusText.textContent =
+                "Location permission denied";
+            break;
+
+        case error.POSITION_UNAVAILABLE:
+            gpsStatusText.textContent =
+                "GPS position unavailable";
+            break;
+
+        case error.TIMEOUT:
+            gpsStatusText.textContent =
+                "Waiting for GPS";
+            break;
+
+        default:
+            gpsStatusText.textContent =
+                "GPS error";
+            break;
+    }
+}
+
+function storeLatestMotionValues(event)
+{
+    const gravityAcceleration =
+        event.accelerationIncludingGravity;
+
+    if (gravityAcceleration)
+    {
+        latestAccelerationIncludingGravity =
+        {
+            x: validNumberOrNull(gravityAcceleration.x),
+            y: validNumberOrNull(gravityAcceleration.y),
+            z: validNumberOrNull(gravityAcceleration.z)
+        };
+    }
+
+    const linearAcceleration = event.acceleration;
+
+    if (linearAcceleration)
+    {
+        latestLinearAcceleration =
+        {
+            x: validNumberOrNull(linearAcceleration.x),
+            y: validNumberOrNull(linearAcceleration.y),
+            z: validNumberOrNull(linearAcceleration.z)
+        };
+    }
+
+    const rotationRate = event.rotationRate;
+
+    if (rotationRate)
+    {
+        latestRotationRate =
+        {
+            alpha: validNumberOrNull(rotationRate.alpha),
+            beta: validNumberOrNull(rotationRate.beta),
+            gamma: validNumberOrNull(rotationRate.gamma)
+        };
+    }
+}
+
+function startRideRecording()
+{
+    if (!sensorsStarted)
+    {
+        rideStatusText.textContent =
+            "Start sensors before recording";
+        return;
+    }
+
+    if (!savedCalibration)
+    {
+        rideStatusText.textContent =
+            "Calibrate upright before recording";
+        return;
+    }
+
+    if (rideRecording)
+    {
+        return;
+    }
+
+    rideSamples = [];
+    rideStartEpochMs = Date.now();
+    rideStartPerformanceMs = performance.now();
+    rideRecording = true;
+
+    startRideButton.disabled = true;
+    stopRideButton.disabled = false;
+
+    rideStatusText.textContent = "Recording";
+    sampleCountText.textContent = "0";
+    rideTimerText.textContent = "00:00:00.0";
+
+    if (rideTimerInterval !== null)
+    {
+        clearInterval(rideTimerInterval);
+    }
+
+    rideTimerInterval = window.setInterval(
+        updateRideTimer,
+        100
+    );
+}
+
+function stopRideRecording()
+{
+    if (!rideRecording)
+    {
+        return;
+    }
+
+    rideRecording = false;
+
+    if (rideTimerInterval !== null)
+    {
+        clearInterval(rideTimerInterval);
+        rideTimerInterval = null;
+    }
+
+    startRideButton.disabled = false;
+    stopRideButton.disabled = true;
+
+    updateRideTimer();
+
+    if (rideSamples.length === 0)
+    {
+        rideStatusText.textContent =
+            "Stopped — no samples recorded";
+        return;
+    }
+
+    rideStatusText.textContent =
+        "Stopped — preparing CSV";
+
+    downloadRideCsv();
+
+    rideStatusText.textContent =
+        "CSV downloaded: " +
+        rideSamples.length +
+        " samples";
+}
+
+function updateRideTimer()
+{
+    if (rideStartPerformanceMs <= 0)
+    {
+        rideTimerText.textContent = "00:00:00.0";
+        return;
+    }
+
+    const elapsedMs =
+        Math.max(
+            0,
+            performance.now() - rideStartPerformanceMs
+        );
+
+    rideTimerText.textContent =
+        formatElapsedTime(elapsedMs);
+}
+
+function formatElapsedTime(elapsedMs)
+{
+    const totalTenths =
+        Math.floor(elapsedMs / 100);
+
+    const tenths = totalTenths % 10;
+    const totalSeconds =
+        Math.floor(totalTenths / 10);
+
+    const seconds = totalSeconds % 60;
+    const totalMinutes =
+        Math.floor(totalSeconds / 60);
+
+    const minutes = totalMinutes % 60;
+    const hours =
+        Math.floor(totalMinutes / 60);
+
+    return (
+        String(hours).padStart(2, "0") +
+        ":" +
+        String(minutes).padStart(2, "0") +
+        ":" +
+        String(seconds).padStart(2, "0") +
+        "." +
+        String(tenths)
+    );
+}
+
+function recordRideSample()
+{
+    const nowPerformanceMs = performance.now();
+
+    const elapsedMs =
+        nowPerformanceMs - rideStartPerformanceMs;
+
+    const timestampMs =
+        rideStartEpochMs + elapsedMs;
+
+    const accelG =
+        Math.max(0, latestSignedForwardG);
+
+    const brakeG =
+        Math.max(0, -latestSignedForwardG);
+
+    rideSamples.push(
+        {
+            timestamp_iso:
+                new Date(timestampMs).toISOString(),
+
+            elapsed_ms:
+                Number(elapsedMs.toFixed(3)),
+
+            lean_deg:
+                Number(latestLeanAngle.toFixed(3)),
+
+            lean_direction:
+                latestLeanDirection,
+
+            signed_forward_g:
+                Number(latestSignedForwardG.toFixed(5)),
+
+            accel_g:
+                Number(accelG.toFixed(5)),
+
+            brake_g:
+                Number(brakeG.toFixed(5)),
+
+            speed_kmh:
+                Number(latestSpeedKmh.toFixed(3)),
+
+            latitude:
+                latestLatitude,
+
+            longitude:
+                latestLongitude,
+
+            gps_accuracy_m:
+                latestGpsAccuracyM,
+
+            gps_timestamp_ms:
+                latestGpsTimestampMs,
+
+            accel_gravity_x_ms2:
+                latestAccelerationIncludingGravity.x,
+
+            accel_gravity_y_ms2:
+                latestAccelerationIncludingGravity.y,
+
+            accel_gravity_z_ms2:
+                latestAccelerationIncludingGravity.z,
+
+            linear_accel_x_ms2:
+                latestLinearAcceleration.x,
+
+            linear_accel_y_ms2:
+                latestLinearAcceleration.y,
+
+            linear_accel_z_ms2:
+                latestLinearAcceleration.z,
+
+            gyro_alpha_dps:
+                latestRotationRate.alpha,
+
+            gyro_beta_dps:
+                latestRotationRate.beta,
+
+            gyro_gamma_dps:
+                latestRotationRate.gamma,
+
+            orientation_alpha_deg:
+                latestOrientation.alpha,
+
+            orientation_beta_deg:
+                latestOrientation.beta,
+
+            orientation_gamma_deg:
+                latestOrientation.gamma
+        }
+    );
+
+    sampleCountText.textContent =
+        String(rideSamples.length);
+}
+
+function downloadRideCsv()
+{
+    const header =
+    [
+        "timestamp_iso",
+        "elapsed_ms",
+        "lean_deg",
+        "lean_direction",
+        "signed_forward_g",
+        "accel_g",
+        "brake_g",
+        "speed_kmh",
+        "latitude",
+        "longitude",
+        "gps_accuracy_m",
+        "gps_timestamp_ms",
+        "accel_gravity_x_ms2",
+        "accel_gravity_y_ms2",
+        "accel_gravity_z_ms2",
+        "linear_accel_x_ms2",
+        "linear_accel_y_ms2",
+        "linear_accel_z_ms2",
+        "gyro_alpha_dps",
+        "gyro_beta_dps",
+        "gyro_gamma_dps",
+        "orientation_alpha_deg",
+        "orientation_beta_deg",
+        "orientation_gamma_deg"
+    ];
+
+    const rows =
+    [
+        header.join(",")
+    ];
+
+    for (const sample of rideSamples)
+    {
+        rows.push(
+            header
+                .map(
+                    function (column)
+                    {
+                        return csvValue(sample[column]);
+                    }
+                )
+                .join(",")
+        );
+    }
+
+    const csvText = rows.join("\r\n");
+
+    const blob =
+        new Blob(
+            [csvText],
+            {
+                type:
+                    "text/csv;charset=utf-8"
+            }
+        );
+
+    const url =
+        URL.createObjectURL(blob);
+
+    const downloadLink =
+        document.createElement("a");
+
+    downloadLink.href = url;
+    downloadLink.download =
+        buildRideFilename();
+
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+
+    window.setTimeout(
+        function ()
+        {
+            URL.revokeObjectURL(url);
+        },
+        1000
+    );
+}
+
+function buildRideFilename()
+{
+    const date =
+        new Date(rideStartEpochMs);
+
+    const year =
+        String(date.getFullYear());
+
+    const month =
+        String(date.getMonth() + 1).padStart(2, "0");
+
+    const day =
+        String(date.getDate()).padStart(2, "0");
+
+    const hours =
+        String(date.getHours()).padStart(2, "0");
+
+    const minutes =
+        String(date.getMinutes()).padStart(2, "0");
+
+    const seconds =
+        String(date.getSeconds()).padStart(2, "0");
+
+    return (
+        "BikeRide_" +
+        year +
+        month +
+        day +
+        "_" +
+        hours +
+        minutes +
+        seconds +
+        ".csv"
+    );
+}
+
+function csvValue(value)
+{
+    if (value === null || value === undefined)
+    {
+        return "";
+    }
+
+    const text = String(value);
+
+    if (
+        text.includes(",") ||
+        text.includes("\"") ||
+        text.includes("\n") ||
+        text.includes("\r")
+    )
+    {
+        return (
+            "\"" +
+            text.replaceAll("\"", "\"\"") +
+            "\""
+        );
+    }
+
+    return text;
+}
 
 function getBikeForwardVector()
 {
@@ -853,6 +1564,8 @@ function updateForwardG(acceleration)
         filteredForwardG = 0;
     }
 
+    latestSignedForwardG = filteredForwardG;
+
     const accelerationG =
         Math.max(0, filteredForwardG);
 
@@ -890,10 +1603,12 @@ function resetMaximumLean()
     maximumLeanAngle = 0;
     maximumAccelG = 0;
     maximumBrakeG = 0;
+    maximumSpeedKmh = 0;
 
     maxLeanText.textContent = "0.0°";
     maxAccelGText.textContent = "0.00 G";
     maxBrakeGText.textContent = "0.00 G";
+    maxSpeedText.textContent = "0 km/h";
 }
 
 function normalizeVector(x, y, z)
