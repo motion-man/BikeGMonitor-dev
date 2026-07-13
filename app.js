@@ -84,9 +84,13 @@ const maxLeanText =
 const resetMaxButton =
     document.getElementById("resetMaxButton");
 
+const wakeLockStatusText =
+    document.getElementById("wakeLockStatus");
+
 let sensorsStarted = false;
 let savedCalibration = null;
 let maximumLeanAngle = 0;
+let wakeLockSentinel = null;
 
 let latestOrientation =
 {
@@ -114,6 +118,11 @@ resetMaxButton.addEventListener("click", resetMaximumLean);
 
 loadSavedCalibration();
 summaryDeviceText.textContent = detectDevice();
+
+document.addEventListener(
+    "visibilitychange",
+    handleVisibilityChange
+);
 
 async function startSensors()
 {
@@ -174,11 +183,67 @@ async function startSensors()
         startButton.disabled = true;
 
         calibrateButton.disabled = false;
+
+        await requestScreenWakeLock();
     }
     catch (error)
     {
         statusText.textContent =
             "Sensor error: " + error.message;
+    }
+}
+
+
+async function requestScreenWakeLock()
+{
+    if (!("wakeLock" in navigator))
+    {
+        wakeLockStatusText.textContent = "Not supported";
+        return;
+    }
+
+    if (document.visibilityState !== "visible")
+    {
+        wakeLockStatusText.textContent = "Waiting for active screen";
+        return;
+    }
+
+    try
+    {
+        if (wakeLockSentinel && !wakeLockSentinel.released)
+        {
+            wakeLockStatusText.textContent = "Active";
+            return;
+        }
+
+        wakeLockSentinel =
+            await navigator.wakeLock.request("screen");
+
+        wakeLockStatusText.textContent = "Active";
+
+        wakeLockSentinel.addEventListener(
+            "release",
+            function ()
+            {
+                wakeLockStatusText.textContent = "Released";
+            }
+        );
+    }
+    catch (error)
+    {
+        wakeLockSentinel = null;
+        wakeLockStatusText.textContent = "Unavailable";
+    }
+}
+
+async function handleVisibilityChange()
+{
+    if (
+        document.visibilityState === "visible" &&
+        sensorsStarted
+    )
+    {
+        await requestScreenWakeLock();
     }
 }
 

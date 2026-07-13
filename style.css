@@ -247,3 +247,22 @@ h2
         grid-template-columns: 1fr;
     }
 }
+
+
+.wakeLockPanel
+{
+    margin: 0 0 16px;
+    padding: 11px;
+
+    border-radius: 10px;
+    background: #242a31;
+
+    font-size: 17px;
+    color: #c8d2dc;
+}
+
+#wakeLockStatus
+{
+    font-weight: bold;
+    color: #f1c75b;
+}
