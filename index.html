@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0,
+                 maximum-scale=1.0, user-scalable=no"
+    >
+
     <title>Bike G Monitor</title>
 
     <link rel="manifest" href="manifest.json">
@@ -21,27 +27,100 @@
         Start Sensors
     </button>
 
-    <hr>
+    <section>
+        <h2>Acceleration Including Gravity</h2>
 
-    <div class="reading">
-        X :
-        <span id="x">0.000</span>
-    </div>
+        <div class="reading">
+            X:
+            <span id="x">0.000</span> G
+        </div>
 
-    <div class="reading">
-        Y :
-        <span id="y">0.000</span>
-    </div>
+        <div class="reading">
+            Y:
+            <span id="y">0.000</span> G
+        </div>
 
-    <div class="reading">
-        Z :
-        <span id="z">0.000</span>
-    </div>
+        <div class="reading">
+            Z:
+            <span id="z">0.000</span> G
+        </div>
 
-    <div class="reading total">
-        Total G :
-        <span id="total">0.000</span>
-    </div>
+        <div class="reading total">
+            Total:
+            <span id="total">0.000</span> G
+        </div>
+    </section>
+
+    <section>
+        <h2>Linear Acceleration</h2>
+
+        <div class="reading">
+            X:
+            <span id="linearX">0.000</span> G
+        </div>
+
+        <div class="reading">
+            Y:
+            <span id="linearY">0.000</span> G
+        </div>
+
+        <div class="reading">
+            Z:
+            <span id="linearZ">0.000</span> G
+        </div>
+    </section>
+
+    <section>
+        <h2>Rotation Rate</h2>
+
+        <div class="reading">
+            Alpha:
+            <span id="rotationAlpha">0.0</span> °/s
+        </div>
+
+        <div class="reading">
+            Beta:
+            <span id="rotationBeta">0.0</span> °/s
+        </div>
+
+        <div class="reading">
+            Gamma:
+            <span id="rotationGamma">0.0</span> °/s
+        </div>
+    </section>
+
+    <section>
+        <h2>Orientation</h2>
+
+        <div class="reading">
+            Alpha:
+            <span id="orientationAlpha">0.0</span>°
+        </div>
+
+        <div class="reading">
+            Beta:
+            <span id="orientationBeta">0.0</span>°
+        </div>
+
+        <div class="reading">
+            Gamma:
+            <span id="orientationGamma">0.0</span>°
+        </div>
+    </section>
+
+    <section>
+        <h2>Sensor Information</h2>
+
+        <div class="reading">
+            Motion interval:
+            <span id="interval">0.0</span> ms
+        </div>
+
+        <div class="reading">
+            Approx. rate:
+            <span id="rate">0.0</span> Hz
+        </div>
+    </section>
 
     <script src="app.js"></script>
 
