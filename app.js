@@ -2,7 +2,7 @@ const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV1";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.5.2-dev1";
+const APP_VERSION = "0.5.3-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -375,7 +375,9 @@ async function requestOrientationPermission()
 
 function handleMotion(event)
 {
-	summaryMotionText.textContent = "Working";
+    summaryMotionText.textContent = "Working";
+
+    storeLatestMotionValues(event);
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
