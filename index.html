@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bike G Monitor</title>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <h1>Bike G Monitor</h1>
+
+    <div id="status">
+        Press Start
+    </div>
+
+    <button id="startButton">
+        Start Sensors
+    </button>
+
+    <hr>
+
+    <div class="reading">
+        X :
+        <span id="x">0.000</span>
+    </div>
+
+    <div class="reading">
+        Y :
+        <span id="y">0.000</span>
+    </div>
+
+    <div class="reading">
+        Z :
+        <span id="z">0.000</span>
+    </div>
+
+    <div class="reading total">
+        Total G :
+        <span id="total">0.000</span>
+    </div>
+
+    <script src="app.js"></script>
+
+</body>
+</html>
