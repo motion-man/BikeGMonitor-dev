@@ -69,7 +69,14 @@ const summaryRateText =
 const summaryDeviceText =
     document.getElementById("summaryDevice");
 
+const leanAngleText =
+    document.getElementById("leanAngle");
+
+const leanStatusText =
+    document.getElementById("leanStatus");
+
 let sensorsStarted = false;
+let savedCalibration = null;
 
 let latestOrientation =
 {
@@ -213,6 +220,10 @@ function handleMotion(event)
 
     updateSamplingInformation(
         event.interval
+    );
+
+    updateLeanAngle(
+        event.accelerationIncludingGravity
     );
 
     if (calibrationActive)
@@ -446,6 +457,7 @@ function finishCalibration()
             JSON.stringify(calibration)
         );
 
+        savedCalibration = calibration;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
 
@@ -489,6 +501,7 @@ function loadSavedCalibration()
             return;
         }
 
+        savedCalibration = calibration;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
 
@@ -518,6 +531,172 @@ function displayCalibration(calibration)
 
     calibrationGammaText.textContent =
         formatNumber(calibration.gamma, 1);
+}
+
+
+function updateLeanAngle(acceleration)
+{
+    if (!savedCalibration)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Calibrate upright first";
+        return;
+    }
+
+    if (!acceleration)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "No motion data";
+        return;
+    }
+
+    const currentGravity = normalizeVector(
+        acceleration.x / GRAVITY,
+        acceleration.y / GRAVITY,
+        acceleration.z / GRAVITY
+    );
+
+    const uprightGravity = normalizeVector(
+        savedCalibration.x,
+        savedCalibration.y,
+        savedCalibration.z
+    );
+
+    if (!currentGravity || !uprightGravity)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Invalid sensor data";
+        return;
+    }
+
+    const screenTop = { x: 0, y: 1, z: 0 };
+
+    const forward = normalizeObject(
+        subtractVector(
+            screenTop,
+            scaleVector(
+                uprightGravity,
+                dotProduct(screenTop, uprightGravity)
+            )
+        )
+    );
+
+    if (!forward)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Mount angle is unsuitable";
+        return;
+    }
+
+    const uprightRollPlane = normalizeObject(
+        subtractVector(
+            uprightGravity,
+            scaleVector(
+                forward,
+                dotProduct(uprightGravity, forward)
+            )
+        )
+    );
+
+    const currentRollPlane = normalizeObject(
+        subtractVector(
+            currentGravity,
+            scaleVector(
+                forward,
+                dotProduct(currentGravity, forward)
+            )
+        )
+    );
+
+    if (!uprightRollPlane || !currentRollPlane)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Unable to calculate";
+        return;
+    }
+
+    const cross = crossProduct(
+        uprightRollPlane,
+        currentRollPlane
+    );
+
+    const sinAngle = dotProduct(forward, cross);
+    const cosAngle = clamp(
+        dotProduct(uprightRollPlane, currentRollPlane),
+        -1,
+        1
+    );
+
+    const signedAngle =
+        Math.atan2(sinAngle, cosAngle) * 180 / Math.PI;
+
+    leanAngleText.textContent =
+        Math.abs(signedAngle).toFixed(1) + "°";
+
+    leanStatusText.textContent =
+        "Raw stationary lean test";
+}
+
+function normalizeVector(x, y, z)
+{
+    return normalizeObject({ x, y, z });
+}
+
+function normalizeObject(vector)
+{
+    const magnitude = Math.sqrt(
+        vector.x * vector.x +
+        vector.y * vector.y +
+        vector.z * vector.z
+    );
+
+    if (!Number.isFinite(magnitude) || magnitude < 0.000001)
+    {
+        return null;
+    }
+
+    return {
+        x: vector.x / magnitude,
+        y: vector.y / magnitude,
+        z: vector.z / magnitude
+    };
+}
+
+function dotProduct(a, b)
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function crossProduct(a, b)
+{
+    return {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x
+    };
+}
+
+function subtractVector(a, b)
+{
+    return {
+        x: a.x - b.x,
+        y: a.y - b.y,
+        z: a.z - b.z
+    };
+}
+
+function scaleVector(vector, scale)
+{
+    return {
+        x: vector.x * scale,
+        y: vector.y * scale,
+        z: vector.z * scale
+    };
+}
+
+function clamp(value, minimum, maximum)
+{
+    return Math.min(maximum, Math.max(minimum, value));
 }
 
 function validNumberOrNull(value)

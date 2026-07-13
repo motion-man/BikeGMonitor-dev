@@ -109,3 +109,18 @@ section
     font-size: 32px;
     font-weight: bold;
 }
+
+
+.leanValue
+{
+    margin: 8px 0;
+    font-size: 64px;
+    font-weight: bold;
+}
+
+#leanStatus
+{
+    margin-top: 8px;
+    font-size: 18px;
+    color: #f1c75b;
+}
