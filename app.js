@@ -1,3 +1,5 @@
+const GRAVITY = 9.80665;
+
 const startButton = document.getElementById("startButton");
 const statusText = document.getElementById("status");
 
@@ -6,11 +8,34 @@ const yText = document.getElementById("y");
 const zText = document.getElementById("z");
 const totalText = document.getElementById("total");
 
-const GRAVITY = 9.80665;
+const linearXText = document.getElementById("linearX");
+const linearYText = document.getElementById("linearY");
+const linearZText = document.getElementById("linearZ");
+
+const rotationAlphaText =
+    document.getElementById("rotationAlpha");
+
+const rotationBetaText =
+    document.getElementById("rotationBeta");
+
+const rotationGammaText =
+    document.getElementById("rotationGamma");
+
+const orientationAlphaText =
+    document.getElementById("orientationAlpha");
+
+const orientationBetaText =
+    document.getElementById("orientationBeta");
+
+const orientationGammaText =
+    document.getElementById("orientationGamma");
+
+const intervalText = document.getElementById("interval");
+const rateText = document.getElementById("rate");
 
 let sensorsStarted = false;
 
-startButton.onclick = startSensors;
+startButton.addEventListener("click", startSensors);
 
 async function startSensors()
 {
@@ -21,31 +46,32 @@ async function startSensors()
 
     try
     {
-        /*
-         * iPhone and iPad require motion permission
-         * to be requested from a button press.
-         */
-        if (
-            typeof DeviceMotionEvent !== "undefined" &&
-            typeof DeviceMotionEvent.requestPermission === "function"
-        )
+        const motionAllowed =
+            await requestMotionPermission();
+
+        if (!motionAllowed)
         {
-            const permission =
-                await DeviceMotionEvent.requestPermission();
+            statusText.textContent =
+                "Motion sensor permission denied";
 
-            if (permission !== "granted")
-            {
-                statusText.innerHTML =
-                    "Motion sensor permission denied";
+            return;
+        }
 
-                return;
-            }
+        const orientationAllowed =
+            await requestOrientationPermission();
+
+        if (!orientationAllowed)
+        {
+            statusText.textContent =
+                "Orientation permission denied";
+
+            return;
         }
 
         if (typeof DeviceMotionEvent === "undefined")
         {
-            statusText.innerHTML =
-                "Motion sensors are not supported on this device";
+            statusText.textContent =
+                "Device motion is not supported";
 
             return;
         }
@@ -56,34 +82,80 @@ async function startSensors()
             true
         );
 
+        window.addEventListener(
+            "deviceorientation",
+            handleOrientation,
+            true
+        );
+
         sensorsStarted = true;
 
-        statusText.innerHTML = "Sensors running";
-        startButton.innerHTML = "Sensors Active";
+        statusText.textContent = "Sensors running";
+        startButton.textContent = "Sensors Active";
         startButton.disabled = true;
     }
     catch (error)
     {
-        statusText.innerHTML =
+        statusText.textContent =
             "Sensor error: " + error.message;
     }
 }
 
+async function requestMotionPermission()
+{
+    if (
+        typeof DeviceMotionEvent !== "undefined" &&
+        typeof DeviceMotionEvent.requestPermission === "function"
+    )
+    {
+        const result =
+            await DeviceMotionEvent.requestPermission();
+
+        return result === "granted";
+    }
+
+    return true;
+}
+
+async function requestOrientationPermission()
+{
+    if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+    )
+    {
+        const result =
+            await DeviceOrientationEvent.requestPermission();
+
+        return result === "granted";
+    }
+
+    return true;
+}
+
 function handleMotion(event)
 {
-    /*
-     * accelerationIncludingGravity includes the
-     * Earth's gravity, so a stationary phone should
-     * show a total close to 1.000 G.
-     */
-    const acceleration =
-        event.accelerationIncludingGravity;
+    updateAccelerationIncludingGravity(
+        event.accelerationIncludingGravity
+    );
 
+    updateLinearAcceleration(
+        event.acceleration
+    );
+
+    updateRotationRate(
+        event.rotationRate
+    );
+
+    updateSamplingInformation(
+        event.interval
+    );
+}
+
+function updateAccelerationIncludingGravity(acceleration)
+{
     if (!acceleration)
     {
-        statusText.innerHTML =
-            "No accelerometer data received";
-
         return;
     }
 
@@ -101,8 +173,93 @@ function handleMotion(event)
         zG * zG
     );
 
-    xText.innerHTML = xG.toFixed(3);
-    yText.innerHTML = yG.toFixed(3);
-    zText.innerHTML = zG.toFixed(3);
-    totalText.innerHTML = totalG.toFixed(3);
+    xText.textContent = xG.toFixed(3);
+    yText.textContent = yG.toFixed(3);
+    zText.textContent = zG.toFixed(3);
+    totalText.textContent = totalG.toFixed(3);
+}
+
+function updateLinearAcceleration(acceleration)
+{
+    if (!acceleration)
+    {
+        linearXText.textContent = "N/A";
+        linearYText.textContent = "N/A";
+        linearZText.textContent = "N/A";
+        return;
+    }
+
+    const x = (acceleration.x ?? 0) / GRAVITY;
+    const y = (acceleration.y ?? 0) / GRAVITY;
+    const z = (acceleration.z ?? 0) / GRAVITY;
+
+    linearXText.textContent = x.toFixed(3);
+    linearYText.textContent = y.toFixed(3);
+    linearZText.textContent = z.toFixed(3);
+}
+
+function updateRotationRate(rotationRate)
+{
+    if (!rotationRate)
+    {
+        rotationAlphaText.textContent = "N/A";
+        rotationBetaText.textContent = "N/A";
+        rotationGammaText.textContent = "N/A";
+        return;
+    }
+
+    rotationAlphaText.textContent =
+        formatNumber(rotationRate.alpha, 1);
+
+    rotationBetaText.textContent =
+        formatNumber(rotationRate.beta, 1);
+
+    rotationGammaText.textContent =
+        formatNumber(rotationRate.gamma, 1);
+}
+
+function handleOrientation(event)
+{
+    orientationAlphaText.textContent =
+        formatNumber(event.alpha, 1);
+
+    orientationBetaText.textContent =
+        formatNumber(event.beta, 1);
+
+    orientationGammaText.textContent =
+        formatNumber(event.gamma, 1);
+}
+
+function updateSamplingInformation(interval)
+{
+    const validInterval =
+        typeof interval === "number" &&
+        Number.isFinite(interval) &&
+        interval > 0;
+
+    if (!validInterval)
+    {
+        intervalText.textContent = "N/A";
+        rateText.textContent = "N/A";
+        return;
+    }
+
+    intervalText.textContent = interval.toFixed(1);
+
+    const frequency = 1000 / interval;
+
+    rateText.textContent = frequency.toFixed(1);
+}
+
+function formatNumber(value, decimals)
+{
+    if (
+        typeof value !== "number" ||
+        !Number.isFinite(value)
+    )
+    {
+        return "N/A";
+    }
+
+    return value.toFixed(decimals);
 }
