@@ -1,3 +1,4 @@
+
 *
 {
     box-sizing: border-box;
@@ -6,66 +7,138 @@
 body
 {
     margin: 0;
-    padding: 20px;
+    min-height: 100vh;
+    padding: 18px;
 
-    background: #111;
+    background: #0b0d10;
     color: white;
 
     font-family: Arial, Helvetica, sans-serif;
     text-align: center;
 }
 
+.appHeader
+{
+    max-width: 620px;
+    margin: 0 auto 16px;
+}
+
 h1
 {
-    margin: 10px 0 18px;
-    font-size: 38px;
+    margin: 4px 0;
+    font-size: 34px;
 }
 
-h2
+.branchLabel
 {
-    margin: 0 0 16px;
-    font-size: 24px;
-}
-
-#status
-{
-    margin: 16px;
-    font-size: 22px;
-    color: cyan;
-}
-
-#calibrationStatus
-{
-    max-width: 520px;
-    margin: 2px auto 18px;
-    padding: 12px;
-
-    border-radius: 10px;
-    background: #292929;
-
-    font-size: 18px;
+    font-size: 14px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
     color: #f1c75b;
+}
+
+.dashboard
+{
+    width: 100%;
+    max-width: 620px;
+    margin: 0 auto;
+}
+
+.heroCard,
+.metricCard,
+.diagnostics section
+{
+    background: #1b2027;
+    border: 1px solid #303843;
+    border-radius: 16px;
+}
+
+.heroCard
+{
+    padding: 22px 16px;
+    margin-bottom: 14px;
+}
+
+.cardLabel
+{
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    color: #aab4c0;
+}
+
+.leanValue
+{
+    margin: 8px 0 0;
+    font-size: 76px;
+    line-height: 1;
+    font-weight: bold;
+}
+
+.leanDirection
+{
+    margin-top: 8px;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.cardStatus
+{
+    margin-top: 10px;
+    color: #f1c75b;
+    font-size: 17px;
+}
+
+.metricGrid
+{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.metricCard
+{
+    min-height: 128px;
+    padding: 16px 8px;
+}
+
+.metricValue
+{
+    margin-top: 14px;
+    font-size: 35px;
+    font-weight: bold;
+}
+
+.mutedMetric
+{
+    opacity: 0.65;
+}
+
+.comingSoon
+{
+    margin-top: 8px;
+    font-size: 13px;
+    color: #aab4c0;
 }
 
 .buttonRow
 {
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-    flex-wrap: wrap;
-
-    margin-bottom: 14px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 14px 0;
 }
 
 button
 {
-    min-width: 180px;
-    padding: 16px 24px;
+    min-height: 58px;
+    padding: 12px 8px;
 
     border: 0;
     border-radius: 12px;
 
-    font-size: 22px;
+    font-size: 18px;
     font-weight: bold;
 }
 
@@ -76,51 +149,101 @@ button:disabled
 
 #startButton
 {
-    background: #38b66c;
+    background: #35a968;
     color: white;
 }
 
 #calibrateButton
 {
-    background: #e29325;
+    background: #dd8a22;
     color: white;
 }
 
-section
+#resetMaxButton
 {
-    width: 100%;
-    max-width: 520px;
+    background: #3a4654;
+    color: white;
+}
 
-    margin: 16px auto;
+#status
+{
+    margin: 12px 0;
+    font-size: 20px;
+    color: cyan;
+}
+
+#calibrationStatus
+{
+    margin: 0 0 16px;
+    padding: 11px;
+
+    border-radius: 10px;
+    background: #242a31;
+
+    font-size: 17px;
+    color: #f1c75b;
+}
+
+.diagnostics
+{
+    margin-top: 18px;
+    text-align: left;
+}
+
+.diagnostics summary
+{
+    padding: 16px;
+    border-radius: 12px;
+    background: #242a31;
+    font-size: 19px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.diagnostics section
+{
+    margin-top: 12px;
     padding: 18px;
+    text-align: center;
+}
 
-    background: #20252d;
-    border-radius: 14px;
+h2
+{
+    margin: 0 0 14px;
+    font-size: 22px;
 }
 
 .reading
 {
-    margin: 12px 0;
-    font-size: 24px;
+    margin: 10px 0;
+    font-size: 22px;
 }
 
 .total
 {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: bold;
 }
 
-
-.leanValue
+@media (max-width: 470px)
 {
-    margin: 8px 0;
-    font-size: 64px;
-    font-weight: bold;
-}
+    body
+    {
+        padding: 12px;
+    }
 
-#leanStatus
-{
-    margin-top: 8px;
-    font-size: 18px;
-    color: #f1c75b;
+    .leanValue
+    {
+        font-size: 64px;
+    }
+
+    .metricGrid
+    {
+        grid-template-columns: 1fr;
+    }
+
+    .buttonRow
+    {
+        grid-template-columns: 1fr;
+    }
 }

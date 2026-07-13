@@ -75,8 +75,18 @@ const leanAngleText =
 const leanStatusText =
     document.getElementById("leanStatus");
 
+const leanDirectionText =
+    document.getElementById("leanDirection");
+
+const maxLeanText =
+    document.getElementById("maxLean");
+
+const resetMaxButton =
+    document.getElementById("resetMaxButton");
+
 let sensorsStarted = false;
 let savedCalibration = null;
+let maximumLeanAngle = 0;
 
 let latestOrientation =
 {
@@ -100,6 +110,7 @@ let calibrationTotals =
 
 startButton.addEventListener("click", startSensors);
 calibrateButton.addEventListener("click", startCalibration);
+resetMaxButton.addEventListener("click", resetMaximumLean);
 
 loadSavedCalibration();
 summaryDeviceText.textContent = detectDevice();
@@ -460,6 +471,7 @@ function finishCalibration()
         savedCalibration = calibration;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
+        resetMaximumLean();
 
         calibrationStatusText.textContent =
             "Calibration complete and saved";
@@ -630,11 +642,39 @@ function updateLeanAngle(acceleration)
     const signedAngle =
         Math.atan2(sinAngle, cosAngle) * 180 / Math.PI;
 
+    const absoluteAngle = Math.abs(signedAngle);
+
     leanAngleText.textContent =
-        Math.abs(signedAngle).toFixed(1) + "°";
+        absoluteAngle.toFixed(1) + "°";
+
+    if (absoluteAngle < 0.8)
+    {
+        leanDirectionText.textContent = "UPRIGHT";
+    }
+    else if (signedAngle > 0)
+    {
+        leanDirectionText.textContent = "RIGHT";
+    }
+    else
+    {
+        leanDirectionText.textContent = "LEFT";
+    }
+
+    if (absoluteAngle > maximumLeanAngle)
+    {
+        maximumLeanAngle = absoluteAngle;
+        maxLeanText.textContent =
+            maximumLeanAngle.toFixed(1) + "°";
+    }
 
     leanStatusText.textContent =
-        "Raw stationary lean test";
+        "Calibrated bike lean";
+}
+
+function resetMaximumLean()
+{
+    maximumLeanAngle = 0;
+    maxLeanText.textContent = "0.0°";
 }
 
 function normalizeVector(x, y, z)

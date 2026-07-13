@@ -17,192 +17,212 @@
 
 <body>
 
-    <h1>Bike G Monitor</h1>
+    <header class="appHeader">
+        <h1>Bike G Monitor</h1>
+        <div class="branchLabel">Development</div>
+    </header>
 
-    <div id="status">
-        Press Start
-    </div>
+    <main class="dashboard">
 
-    <div class="buttonRow">
-        <button id="startButton">
-            Start Sensors
-        </button>
+        <section class="heroCard">
+            <div class="cardLabel">CURRENT LEAN</div>
 
-        <button id="calibrateButton" disabled>
-            Calibrate
-        </button>
-    </div>
+            <div class="leanValue">
+                <span id="leanAngle">N/A</span>
+            </div>
 
-    <div id="calibrationStatus">
-        No calibration saved
-    </div>
+            <div id="leanDirection" class="leanDirection">
+                NOT CALIBRATED
+            </div>
 
-    <section>
-        <h2>Lean Angle</h2>
+            <div id="leanStatus" class="cardStatus">
+                Calibrate upright first
+            </div>
+        </section>
 
-        <div class="leanValue">
-            <span id="leanAngle">N/A</span>
+        <section class="metricGrid">
+            <div class="metricCard">
+                <div class="cardLabel">MAX LEAN</div>
+                <div id="maxLean" class="metricValue">0.0°</div>
+            </div>
+
+            <div class="metricCard mutedMetric">
+                <div class="cardLabel">ACCEL G</div>
+                <div class="metricValue">--</div>
+                <div class="comingSoon">Coming next</div>
+            </div>
+
+            <div class="metricCard mutedMetric">
+                <div class="cardLabel">BRAKE G</div>
+                <div class="metricValue">--</div>
+                <div class="comingSoon">Coming next</div>
+            </div>
+        </section>
+
+        <div class="buttonRow">
+            <button id="startButton">
+                Start Sensors
+            </button>
+
+            <button id="calibrateButton" disabled>
+                Calibrate
+            </button>
+
+            <button id="resetMaxButton">
+                Reset Max
+            </button>
         </div>
 
-        <div id="leanStatus">
-            Calibrate upright first
-        </div>
-    </section>
-
-    <section>
-        <h2>Acceleration Including Gravity</h2>
-
-        <div class="reading">
-            X:
-            <span id="x">0.000</span> G
+        <div id="status">
+            Press Start
         </div>
 
-        <div class="reading">
-            Y:
-            <span id="y">0.000</span> G
+        <div id="calibrationStatus">
+            No calibration saved
         </div>
 
-        <div class="reading">
-            Z:
-            <span id="z">0.000</span> G
-        </div>
+        <details class="diagnostics">
+            <summary>Developer diagnostics</summary>
 
-        <div class="reading total">
-            Total:
-            <span id="total">0.000</span> G
-        </div>
-    </section>
+            <section>
+                <h2>Acceleration Including Gravity</h2>
 
-    <section>
-        <h2>Linear Acceleration</h2>
+                <div class="reading">
+                    X: <span id="x">0.000</span> G
+                </div>
 
-        <div class="reading">
-            X:
-            <span id="linearX">0.000</span> G
-        </div>
+                <div class="reading">
+                    Y: <span id="y">0.000</span> G
+                </div>
 
-        <div class="reading">
-            Y:
-            <span id="linearY">0.000</span> G
-        </div>
+                <div class="reading">
+                    Z: <span id="z">0.000</span> G
+                </div>
 
-        <div class="reading">
-            Z:
-            <span id="linearZ">0.000</span> G
-        </div>
-    </section>
+                <div class="reading total">
+                    Total: <span id="total">0.000</span> G
+                </div>
+            </section>
 
-    <section>
-        <h2>Rotation Rate</h2>
+            <section>
+                <h2>Linear Acceleration</h2>
 
-        <div class="reading">
-            Alpha:
-            <span id="rotationAlpha">0.0</span> °/s
-        </div>
+                <div class="reading">
+                    X: <span id="linearX">0.000</span> G
+                </div>
 
-        <div class="reading">
-            Beta:
-            <span id="rotationBeta">0.0</span> °/s
-        </div>
+                <div class="reading">
+                    Y: <span id="linearY">0.000</span> G
+                </div>
 
-        <div class="reading">
-            Gamma:
-            <span id="rotationGamma">0.0</span> °/s
-        </div>
-    </section>
+                <div class="reading">
+                    Z: <span id="linearZ">0.000</span> G
+                </div>
+            </section>
 
-    <section>
-        <h2>Orientation</h2>
+            <section>
+                <h2>Rotation Rate</h2>
 
-        <div class="reading">
-            Alpha:
-            <span id="orientationAlpha">0.0</span>°
-        </div>
+                <div class="reading">
+                    Alpha: <span id="rotationAlpha">0.0</span> °/s
+                </div>
 
-        <div class="reading">
-            Beta:
-            <span id="orientationBeta">0.0</span>°
-        </div>
+                <div class="reading">
+                    Beta: <span id="rotationBeta">0.0</span> °/s
+                </div>
 
-        <div class="reading">
-            Gamma:
-            <span id="orientationGamma">0.0</span>°
-        </div>
-    </section>
+                <div class="reading">
+                    Gamma: <span id="rotationGamma">0.0</span> °/s
+                </div>
+            </section>
 
-    <section>
-        <h2>Saved Upright Calibration</h2>
+            <section>
+                <h2>Orientation</h2>
 
-        <div class="reading">
-            X:
-            <span id="calibrationX">N/A</span> G
-        </div>
+                <div class="reading">
+                    Alpha: <span id="orientationAlpha">0.0</span>°
+                </div>
 
-        <div class="reading">
-            Y:
-            <span id="calibrationY">N/A</span> G
-        </div>
+                <div class="reading">
+                    Beta: <span id="orientationBeta">0.0</span>°
+                </div>
 
-        <div class="reading">
-            Z:
-            <span id="calibrationZ">N/A</span> G
-        </div>
+                <div class="reading">
+                    Gamma: <span id="orientationGamma">0.0</span>°
+                </div>
+            </section>
 
-        <div class="reading">
-            Beta:
-            <span id="calibrationBeta">N/A</span>°
-        </div>
+            <section>
+                <h2>Saved Upright Calibration</h2>
 
-        <div class="reading">
-            Gamma:
-            <span id="calibrationGamma">N/A</span>°
-        </div>
-    </section>
+                <div class="reading">
+                    X: <span id="calibrationX">N/A</span> G
+                </div>
 
-    <section>
-        <h2>Test Summary</h2>
+                <div class="reading">
+                    Y: <span id="calibrationY">N/A</span> G
+                </div>
 
-        <div class="reading">
-            Motion sensor:
-            <span id="summaryMotion">Not started</span>
-        </div>
+                <div class="reading">
+                    Z: <span id="calibrationZ">N/A</span> G
+                </div>
 
-        <div class="reading">
-            Orientation sensor:
-            <span id="summaryOrientation">Not started</span>
-        </div>
+                <div class="reading">
+                    Beta: <span id="calibrationBeta">N/A</span>°
+                </div>
 
-        <div class="reading">
-            Calibration:
-            <span id="summaryCalibration">Not saved</span>
-        </div>
+                <div class="reading">
+                    Gamma: <span id="calibrationGamma">N/A</span>°
+                </div>
+            </section>
 
-        <div class="reading">
-            Sample rate:
-            <span id="summaryRate">N/A</span>
-        </div>
+            <section>
+                <h2>Test Summary</h2>
 
-        <div class="reading">
-            Device:
-            <span id="summaryDevice">Unknown</span>
-        </div>
-    </section>
+                <div class="reading">
+                    Motion sensor:
+                    <span id="summaryMotion">Not started</span>
+                </div>
 
-    <section>
-        <h2>Sensor Information</h2>
+                <div class="reading">
+                    Orientation sensor:
+                    <span id="summaryOrientation">Not started</span>
+                </div>
 
-        <div class="reading">
-            Motion interval:
-            <span id="interval">0.0</span> ms
-        </div>
+                <div class="reading">
+                    Calibration:
+                    <span id="summaryCalibration">Not saved</span>
+                </div>
 
-        <div class="reading">
-            Approx. rate:
-            <span id="rate">0.0</span> Hz
-        </div>
-    </section>
+                <div class="reading">
+                    Sample rate:
+                    <span id="summaryRate">N/A</span>
+                </div>
 
-    <script src="app.js?v=0.3.0-dev1"></script>
+                <div class="reading">
+                    Device:
+                    <span id="summaryDevice">Unknown</span>
+                </div>
+            </section>
+
+            <section>
+                <h2>Sensor Information</h2>
+
+                <div class="reading">
+                    Motion interval:
+                    <span id="interval">0.0</span> ms
+                </div>
+
+                <div class="reading">
+                    Approx. rate:
+                    <span id="rate">0.0</span> Hz
+                </div>
+            </section>
+        </details>
+
+    </main>
+
+    <script src="app.js?v=0.3.1-dev1"></script>
 
 </body>
 </html>
