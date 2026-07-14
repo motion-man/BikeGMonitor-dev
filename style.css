@@ -384,18 +384,3 @@ h2
     font-size: 15px;
     color: #aab4c0;
 }
-
-
-.gyroLeanDiagnostic
-{
-    margin-top: 8px;
-    font-size: 14px;
-    letter-spacing: 0.5px;
-    color: #aab4c0;
-}
-
-#gyroLean
-{
-    font-weight: bold;
-    color: white;
-}

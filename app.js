@@ -2,7 +2,7 @@ const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV2";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.6.1-dev1";
+const APP_VERSION = "0.6.2-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -77,9 +77,6 @@ const leanAngleText =
 const leanStatusText =
     document.getElementById("leanStatus");
 
-const gyroLeanText =
-    document.getElementById("gyroLean");
-
 const leanDirectionText =
     document.getElementById("leanDirection");
 
@@ -135,12 +132,6 @@ let sensorsStarted = false;
 let savedCalibration = null;
 let maximumLeanAngle = 0;
 let filteredSignedLeanAngle = 0;
-
-let gyroLeanAngle = 0;
-let fusedLeanAngle = 0;
-let lastMotionTimestampMs = null;
-let leanFilterInitialized = false;
-let lastOrientationLeanAngle = 0;
 let wakeLockSentinel = null;
 
 let filteredForwardG = 0;
@@ -390,7 +381,6 @@ function handleMotion(event)
     summaryMotionText.textContent = "Working";
 
     storeLatestMotionValues(event);
-    updateGyroLeanFromMotion(event);
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
@@ -714,7 +704,6 @@ function finishCalibration()
 
         savedCalibration = calibration;
         filteredSignedLeanAngle = 0;
-        resetLeanFilter();
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
         resetMaximumLean();
@@ -802,34 +791,117 @@ function updateLeanAngleFromOrientation()
     if (!savedCalibration)
     {
         leanAngleText.textContent = "N/A";
-        gyroLeanText.textContent = "N/A";
         leanStatusText.textContent = "Calibrate upright first";
         return;
     }
 
-    const orientationLean =
-        calculateOrientationLeanMeasurement();
-
     if (
-        typeof orientationLean !== "number" ||
-        !Number.isFinite(orientationLean)
+        latestOrientation.alpha === null ||
+        latestOrientation.beta === null ||
+        latestOrientation.gamma === null
     )
     {
         leanAngleText.textContent = "N/A";
-        gyroLeanText.textContent = "N/A";
         leanStatusText.textContent = "Waiting for orientation";
         return;
     }
 
-    lastOrientationLeanAngle = orientationLean;
+    const currentMatrix = deviceOrientationMatrix(
+        latestOrientation.alpha,
+        latestOrientation.beta,
+        latestOrientation.gamma
+    );
 
-    if (!leanFilterInitialized)
+    if (!currentMatrix)
     {
-        gyroLeanAngle = orientationLean;
-        fusedLeanAngle = orientationLean;
-        leanFilterInitialized = true;
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Invalid orientation data";
+        return;
     }
 
+    const referenceMatrix =
+        savedCalibration.orientationMatrix;
+
+    const relativeMatrix = multiplyMatrices3(
+        transposeMatrix3(referenceMatrix),
+        currentMatrix
+    );
+
+    const uprightVector = normalizeVector(
+        savedCalibration.x,
+        savedCalibration.y,
+        savedCalibration.z
+    );
+
+    const forward = normalizeObject(
+        savedCalibration.forwardVector
+    );
+
+    if (!uprightVector || !forward)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Recalibrate upright";
+        return;
+    }
+
+    const currentUpInReference = normalizeObject(
+        multiplyMatrixVector3(
+            relativeMatrix,
+            uprightVector
+        )
+    );
+
+    const referenceRollPlane = normalizeObject(
+        subtractVector(
+            uprightVector,
+            scaleVector(
+                forward,
+                dotProduct(uprightVector, forward)
+            )
+        )
+    );
+
+    const currentRollPlane = normalizeObject(
+        subtractVector(
+            currentUpInReference,
+            scaleVector(
+                forward,
+                dotProduct(currentUpInReference, forward)
+            )
+        )
+    );
+
+    if (!referenceRollPlane || !currentRollPlane)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Unable to isolate lean";
+        return;
+    }
+
+    const cross = crossProduct(
+        referenceRollPlane,
+        currentRollPlane
+    );
+
+    const rawSignedAngle =
+        Math.atan2(
+            dotProduct(forward, cross),
+            clamp(
+                dotProduct(
+                    referenceRollPlane,
+                    currentRollPlane
+                ),
+                -1,
+                1
+            )
+        ) * 180 / Math.PI;
+
+    /*
+     * Browser orientation can be disturbed by straight-line
+     * acceleration, braking and bumps. During those moments, hold
+     * the last good lean value rather than accepting the disturbed
+     * orientation estimate.
+     */
     const linearMagnitudeG =
         Math.sqrt(
             Math.pow(
@@ -846,291 +918,46 @@ function updateLeanAngleFromOrientation()
             )
         );
 
-    /*
-     * The browser orientation estimate is allowed to correct gyro
-     * drift only slowly. During acceleration, braking and bumps its
-     * correction is almost suspended.
-     */
-    let correctionGain = 0.010;
+    const strongMotion =
+        Number.isFinite(linearMagnitudeG) &&
+        linearMagnitudeG > 0.12;
 
-    if (linearMagnitudeG > 0.18)
+    if (!strongMotion)
     {
-        correctionGain = 0.0002;
-    }
-    else if (linearMagnitudeG > 0.08)
-    {
-        correctionGain = 0.0015;
-    }
+        /*
+         * Restore the stable v0.6.0 response when motion is calm.
+         * A slightly stronger gain helps the reading return cleanly
+         * to upright after acceleration ends.
+         */
+        const smoothing = 0.24;
 
-    const correction =
-        normalizeSignedAngle(
-            orientationLean - gyroLeanAngle
-        );
-
-    gyroLeanAngle =
-        normalizeSignedAngle(
-            gyroLeanAngle +
-            correctionGain * correction
-        );
-
-    const displayGain = 0.20;
-
-    fusedLeanAngle =
-        normalizeSignedAngle(
-            fusedLeanAngle +
-            displayGain *
-            normalizeSignedAngle(
-                gyroLeanAngle - fusedLeanAngle
-            )
-        );
-
-    displayLeanValues(
-        fusedLeanAngle,
-        gyroLeanAngle
-    );
-}
-
-
-
-
-
-
-function updateGyroLeanFromMotion(event)
-{
-    if (!savedCalibration || !event.rotationRate)
-    {
-        lastMotionTimestampMs = null;
-        return;
+        filteredSignedLeanAngle +=
+            smoothing *
+            normalizeLeanDifference(
+                rawSignedAngle,
+                filteredSignedLeanAngle
+            );
     }
 
-    const nowMs =
-        typeof event.timeStamp === "number"
-            ? event.timeStamp
-            : performance.now();
-
-    if (lastMotionTimestampMs === null)
+    if (Math.abs(filteredSignedLeanAngle) < 0.8)
     {
-        lastMotionTimestampMs = nowMs;
-        return;
-    }
-
-    const deltaSeconds =
-        (nowMs - lastMotionTimestampMs) / 1000;
-
-    lastMotionTimestampMs = nowMs;
-
-    if (
-        !Number.isFinite(deltaSeconds) ||
-        deltaSeconds <= 0 ||
-        deltaSeconds > 0.25
-    )
-    {
-        return;
-    }
-
-    const forward =
-        normalizeObject(
-            savedCalibration.forwardVector
-        );
-
-    if (!forward)
-    {
-        return;
-    }
-
-    /*
-     * DeviceMotion rotationRate:
-     * beta = rotation around device X
-     * gamma = rotation around device Y
-     * alpha = rotation around device Z
-     */
-    const angularVelocity =
-    {
-        x:
-            typeof event.rotationRate.beta === "number"
-                ? event.rotationRate.beta
-                : 0,
-
-        y:
-            typeof event.rotationRate.gamma === "number"
-                ? event.rotationRate.gamma
-                : 0,
-
-        z:
-            typeof event.rotationRate.alpha === "number"
-                ? event.rotationRate.alpha
-                : 0
-    };
-
-    const bikeRollRate =
-        dotProduct(
-            angularVelocity,
-            forward
-        );
-
-    if (!Number.isFinite(bikeRollRate))
-    {
-        return;
-    }
-
-    if (!leanFilterInitialized)
-    {
-        gyroLeanAngle = lastOrientationLeanAngle;
-        fusedLeanAngle = lastOrientationLeanAngle;
-        leanFilterInitialized = true;
-    }
-
-    gyroLeanAngle =
-        normalizeSignedAngle(
-            gyroLeanAngle +
-            bikeRollRate * deltaSeconds
-        );
-}
-
-function calculateOrientationLeanMeasurement()
-{
-    if (
-        latestOrientation.alpha === null ||
-        latestOrientation.beta === null ||
-        latestOrientation.gamma === null
-    )
-    {
-        return null;
-    }
-
-    const currentMatrix =
-        deviceOrientationMatrix(
-            latestOrientation.alpha,
-            latestOrientation.beta,
-            latestOrientation.gamma
-        );
-
-    const referenceMatrix =
-        savedCalibration.orientationMatrix;
-
-    if (
-        !currentMatrix ||
-        !Array.isArray(referenceMatrix) ||
-        referenceMatrix.length !== 9
-    )
-    {
-        return null;
-    }
-
-    const relativeMatrix =
-        multiplyMatrices3(
-            transposeMatrix3(referenceMatrix),
-            currentMatrix
-        );
-
-    const uprightVector =
-        normalizeVector(
-            savedCalibration.x,
-            savedCalibration.y,
-            savedCalibration.z
-        );
-
-    const forward =
-        normalizeObject(
-            savedCalibration.forwardVector
-        );
-
-    if (!uprightVector || !forward)
-    {
-        return null;
-    }
-
-    const currentUpInReference =
-        normalizeObject(
-            multiplyMatrixVector3(
-                relativeMatrix,
-                uprightVector
-            )
-        );
-
-    const referenceRollPlane =
-        normalizeObject(
-            subtractVector(
-                uprightVector,
-                scaleVector(
-                    forward,
-                    dotProduct(
-                        uprightVector,
-                        forward
-                    )
-                )
-            )
-        );
-
-    const currentRollPlane =
-        normalizeObject(
-            subtractVector(
-                currentUpInReference,
-                scaleVector(
-                    forward,
-                    dotProduct(
-                        currentUpInReference,
-                        forward
-                    )
-                )
-            )
-        );
-
-    if (!referenceRollPlane || !currentRollPlane)
-    {
-        return null;
-    }
-
-    const cross =
-        crossProduct(
-            referenceRollPlane,
-            currentRollPlane
-        );
-
-    return (
-        Math.atan2(
-            dotProduct(forward, cross),
-            clamp(
-                dotProduct(
-                    referenceRollPlane,
-                    currentRollPlane
-                ),
-                -1,
-                1
-            )
-        ) *
-        180 /
-        Math.PI
-    );
-}
-
-function displayLeanValues(
-    signedAngle,
-    gyroAngle
-)
-{
-    if (Math.abs(signedAngle) < 0.6)
-    {
-        signedAngle = 0;
+        filteredSignedLeanAngle = 0;
     }
 
     const absoluteAngle =
-        Math.abs(signedAngle);
+        Math.abs(filteredSignedLeanAngle);
 
     latestLeanAngle = absoluteAngle;
 
     leanAngleText.textContent =
         absoluteAngle.toFixed(1) + "°";
 
-    gyroLeanText.textContent =
-        Math.abs(gyroAngle).toFixed(1) + "°";
-
     if (absoluteAngle < 0.8)
     {
         latestLeanDirection = "UPRIGHT";
         leanDirectionText.textContent = "UPRIGHT";
     }
-    else if (signedAngle > 0)
+    else if (filteredSignedLeanAngle > 0)
     {
         latestLeanDirection = "LEFT";
         leanDirectionText.textContent = "LEFT";
@@ -1149,40 +976,14 @@ function displayLeanValues(
     }
 
     leanStatusText.textContent =
-        "Gyro-assisted calibrated lean";
+        strongMotion
+            ? "Lean held during acceleration"
+            : "Acceleration-gated orientation lean";
 }
 
-function resetLeanFilter()
-{
-    gyroLeanAngle = 0;
-    fusedLeanAngle = 0;
-    filteredSignedLeanAngle = 0;
-    lastOrientationLeanAngle = 0;
-    lastMotionTimestampMs = null;
-    leanFilterInitialized = false;
 
-    if (gyroLeanText)
-    {
-        gyroLeanText.textContent = "0.0°";
-    }
-}
 
-function normalizeSignedAngle(angle)
-{
-    let result = angle;
 
-    while (result > 180)
-    {
-        result -= 360;
-    }
-
-    while (result < -180)
-    {
-        result += 360;
-    }
-
-    return result;
-}
 
 function startGpsTracking()
 {
@@ -2029,6 +1830,24 @@ function resetMaximumLean()
     maxBrakeGText.textContent = "0.00 G";
     maxSpeedText.textContent = "0 km/h";
 }
+
+function normalizeLeanDifference(target, current)
+{
+    let difference = target - current;
+
+    while (difference > 180)
+    {
+        difference -= 360;
+    }
+
+    while (difference < -180)
+    {
+        difference += 360;
+    }
+
+    return difference;
+}
+
 
 function deviceOrientationMatrix(alpha, beta, gamma)
 {
