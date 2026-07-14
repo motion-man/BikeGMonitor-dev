@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r7";
+const APP_VERSION = "0.8.0-r8";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -328,7 +328,13 @@ async function startSensors()
                     forwardAxis:
                         savedCalibration.forwardVector,
                     steeringAxis:
-                        savedCalibration.steeringAxis
+                        savedCalibration.steeringAxis,
+                    uprightGravity:
+                    {
+                        x: savedCalibration.x,
+                        y: savedCalibration.y,
+                        z: savedCalibration.z
+                    }
                 }
             );
         }
@@ -920,7 +926,13 @@ function finishCalibration()
             {
                 timestamp: performance.now(),
                 forwardAxis: calibration.forwardVector,
-                steeringAxis: calibration.steeringAxis
+                steeringAxis: calibration.steeringAxis,
+                uprightGravity:
+                {
+                    x: calibration.x,
+                    y: calibration.y,
+                    z: calibration.z
+                }
             }
         );
         filteredSignedLeanAngle = 0;

@@ -13,6 +13,7 @@ const LeanEstimator =
     },
 
     steeringAxis: null,
+    uprightGravity: null,
 
     calibrate(sensorData)
     {
@@ -29,6 +30,11 @@ const LeanEstimator =
         this.setSteeringAxis(
             sensorData?.steeringAxis
         );
+
+        this.uprightGravity =
+            this.normalizeVector(
+                sensorData?.uprightGravity
+            );
 
         this.rollAngleDeg = 0;
 
@@ -85,10 +91,10 @@ const LeanEstimator =
                 ? sensorData.timestamp
                 : null;
 
-       const gyroReference =
+        const gyroReference =
             this.validVector(
-            sensorData?.gyroDevice
-        );
+                sensorData?.gyroDevice
+            );
 
         let rollRateDegPerSecond = 0;
         let confidence = 0.35;
@@ -106,6 +112,8 @@ const LeanEstimator =
                     : 0.50;
         }
 
+        let accelerometerCorrectionUsed = false;
+
         if (
             timestampMs !== null &&
             this.previousTimestampMs !== null
@@ -121,9 +129,71 @@ const LeanEstimator =
                 deltaSeconds <= 0.25
             )
             {
-                this.rollAngleDeg +=
+                const predictedAngleDeg =
+                    this.rollAngleDeg +
                     rollRateDegPerSecond *
                     deltaSeconds;
+
+                const accelerometerLeanDeg =
+                    this.accelerometerLeanDeg(
+                        sensorData?.accel
+                    );
+
+                const totalG =
+                    this.vectorMagnitude(
+                        sensorData?.accel
+                    ) /
+                    9.80665;
+
+                const linearAccelerationG =
+                    this.vectorMagnitude(
+                        sensorData?.linearAccel
+                    ) /
+                    9.80665;
+
+                const accelerometerReliable =
+                    Number.isFinite(accelerometerLeanDeg) &&
+                    Number.isFinite(totalG) &&
+                    totalG >= 0.92 &&
+                    totalG <= 1.08 &&
+                    Number.isFinite(linearAccelerationG) &&
+                    linearAccelerationG <= 0.12 &&
+                    Math.abs(rollRateDegPerSecond) <= 25 &&
+                    Math.abs(
+                        this.angleDifferenceDeg(
+                            accelerometerLeanDeg,
+                            predictedAngleDeg
+                        )
+                    ) <= 12;
+
+                if (accelerometerReliable)
+                {
+                    /*
+                     * Slow complementary correction:
+                     * gyro supplies immediate response; gravity only
+                     * removes long-term drift under calm conditions.
+                     */
+                    const correctionWeight =
+                        Math.min(
+                            0.012,
+                            deltaSeconds * 0.35
+                        );
+
+                    this.rollAngleDeg =
+                        predictedAngleDeg +
+                        correctionWeight *
+                        this.angleDifferenceDeg(
+                            accelerometerLeanDeg,
+                            predictedAngleDeg
+                        );
+
+                    accelerometerCorrectionUsed = true;
+                }
+                else
+                {
+                    this.rollAngleDeg =
+                        predictedAngleDeg;
+                }
             }
         }
 
@@ -132,6 +202,15 @@ const LeanEstimator =
         if (Math.abs(this.rollAngleDeg) < 0.05)
         {
             this.rollAngleDeg = 0;
+        }
+
+        if (accelerometerCorrectionUsed)
+        {
+            confidence =
+                Math.max(
+                    confidence,
+                    0.82
+                );
         }
 
         return {
@@ -202,6 +281,143 @@ const LeanEstimator =
             omegaForward -
             coupling * omegaSteering
         ) / denominator;
+    },
+
+    accelerometerLeanDeg(acceleration)
+    {
+        const currentGravity =
+            this.normalizeVector(
+                acceleration
+            );
+
+        if (
+            !currentGravity ||
+            !this.uprightGravity
+        )
+        {
+            return null;
+        }
+
+        const referencePlane =
+            this.projectPerpendicular(
+                this.uprightGravity,
+                this.forwardAxis
+            );
+
+        const currentPlane =
+            this.projectPerpendicular(
+                currentGravity,
+                this.forwardAxis
+            );
+
+        if (
+            !referencePlane ||
+            !currentPlane
+        )
+        {
+            return null;
+        }
+
+        const sine =
+            this.dot(
+                this.cross(
+                    referencePlane,
+                    currentPlane
+                ),
+                this.forwardAxis
+            );
+
+        const cosine =
+            this.dot(
+                referencePlane,
+                currentPlane
+            );
+
+        return (
+            Math.atan2(
+                sine,
+                cosine
+            ) *
+            180 /
+            Math.PI
+        );
+    },
+
+    projectPerpendicular(vector, axis)
+    {
+        const projection =
+            this.dot(
+                vector,
+                axis
+            );
+
+        return this.normalizeVector(
+            {
+                x:
+                    vector.x -
+                    axis.x * projection,
+
+                y:
+                    vector.y -
+                    axis.y * projection,
+
+                z:
+                    vector.z -
+                    axis.z * projection
+            }
+        );
+    },
+
+    vectorMagnitude(vector)
+    {
+        const valid =
+            this.validVector(vector);
+
+        if (!valid)
+        {
+            return NaN;
+        }
+
+        return Math.sqrt(
+            valid.x * valid.x +
+            valid.y * valid.y +
+            valid.z * valid.z
+        );
+    },
+
+    cross(a, b)
+    {
+        return {
+            x:
+                a.y * b.z -
+                a.z * b.y,
+
+            y:
+                a.z * b.x -
+                a.x * b.z,
+
+            z:
+                a.x * b.y -
+                a.y * b.x
+        };
+    },
+
+    angleDifferenceDeg(target, current)
+    {
+        let difference =
+            target - current;
+
+        while (difference > 180)
+        {
+            difference -= 360;
+        }
+
+        while (difference < -180)
+        {
+            difference += 360;
+        }
+
+        return difference;
     },
 
     validVector(vector)
@@ -284,6 +500,7 @@ const LeanEstimator =
         this.rollAngleDeg = 0;
         this.previousTimestampMs = null;
         this.steeringAxis = null;
+        this.uprightGravity = null;
 
         this.forwardAxis =
         {
