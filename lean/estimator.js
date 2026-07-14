@@ -21,6 +21,9 @@ const LeanEstimator =
     lastRawSteeringRateDegPerSecond: 0,
     lastOmegaForwardDegPerSecond: 0,
     lastOmegaSteeringDegPerSecond: 0,
+    lastAccelerometerLeanDeg: null,
+    lastGyroPredictedAngleDeg: 0,
+    lastFusedAngleDeg: 0,
     lastMode: "GYRO",
 
     calibrate(sensorData)
@@ -95,6 +98,9 @@ const LeanEstimator =
                 rawSteeringRate: 0,
                 omegaForward: 0,
                 omegaSteering: 0,
+                accelerometerLean: null,
+                gyroPredictedAngle: 0,
+                fusedAngle: 0,
                 confidence: 0,
                 mode: "UNCAL"
             };
@@ -161,6 +167,12 @@ const LeanEstimator =
 
         let accelerometerCorrectionUsed = false;
 
+        this.lastAccelerometerLeanDeg = null;
+        this.lastGyroPredictedAngleDeg =
+            this.rollAngleDeg;
+        this.lastFusedAngleDeg =
+            this.rollAngleDeg;
+
         if (
             timestampMs !== null &&
             this.previousTimestampMs !== null
@@ -189,6 +201,12 @@ const LeanEstimator =
                     this.accelerometerLeanDeg(
                         sensorData?.accel
                     );
+
+                this.lastAccelerometerLeanDeg =
+                    accelerometerLeanDeg;
+
+                this.lastGyroPredictedAngleDeg =
+                    predictedAngleDeg;
 
                 const totalG =
                     this.vectorMagnitude(
@@ -245,6 +263,9 @@ const LeanEstimator =
                     this.rollAngleDeg =
                         predictedAngleDeg;
                 }
+
+                this.lastFusedAngleDeg =
+                    this.rollAngleDeg;
             }
         }
 
@@ -254,6 +275,9 @@ const LeanEstimator =
         {
             this.rollAngleDeg = 0;
         }
+
+        this.lastFusedAngleDeg =
+            this.rollAngleDeg;
 
         if (accelerometerCorrectionUsed)
         {
@@ -290,6 +314,12 @@ const LeanEstimator =
                 this.lastOmegaForwardDegPerSecond,
             omegaSteering:
                 this.lastOmegaSteeringDegPerSecond,
+            accelerometerLean:
+                this.lastAccelerometerLeanDeg,
+            gyroPredictedAngle:
+                this.lastGyroPredictedAngleDeg,
+            fusedAngle:
+                this.lastFusedAngleDeg,
             confidence,
             mode:
                 this.lastMode
@@ -686,6 +716,9 @@ const LeanEstimator =
         this.lastRawSteeringRateDegPerSecond = 0;
         this.lastOmegaForwardDegPerSecond = 0;
         this.lastOmegaSteeringDegPerSecond = 0;
+        this.lastAccelerometerLeanDeg = null;
+        this.lastGyroPredictedAngleDeg = 0;
+        this.lastFusedAngleDeg = 0;
         this.lastMode = "GYRO";
 
         this.forwardAxis =

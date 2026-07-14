@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r12";
+const APP_VERSION = "0.8.0-r13";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -97,6 +97,15 @@ const imuOmegaForwardText =
 
 const imuOmegaSteeringText =
     document.getElementById("imuOmegaSteering");
+
+const imuAccelRollText =
+    document.getElementById("imuAccelRoll");
+
+const imuGyroPredText =
+    document.getElementById("imuGyroPred");
+
+const imuFusedOutText =
+    document.getElementById("imuFusedOut");
 
 const summaryRateText =
     document.getElementById("summaryRate");
@@ -561,6 +570,17 @@ function handleMotion(event)
 
     imuOmegaSteeringText.textContent =
         imuResult.omegaSteering.toFixed(1) + "°/s";
+
+    imuAccelRollText.textContent =
+        Number.isFinite(imuResult.accelerometerLean)
+            ? imuResult.accelerometerLean.toFixed(1) + "°"
+            : "N/A";
+
+    imuGyroPredText.textContent =
+        imuResult.gyroPredictedAngle.toFixed(1) + "°";
+
+    imuFusedOutText.textContent =
+        imuResult.fusedAngle.toFixed(1) + "°";
 
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
