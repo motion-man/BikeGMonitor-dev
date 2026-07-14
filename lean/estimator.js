@@ -14,8 +14,8 @@ const LeanEstimator =
     update(sensorData)
     {
         return {
-            leanAngle: 0,
-            leanRate: 0,
+            leanAngle: sensorData.accel.x,
+            leanRate: sensorData.gyro.x,
             confidence: this.calibrated ? 1 : 0
         };
     },

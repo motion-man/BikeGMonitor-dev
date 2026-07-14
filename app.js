@@ -412,6 +412,70 @@ function handleMotion(event)
     summaryMotionText.textContent = "Working";
 
     storeLatestMotionValues(event);
+    const imuResult = LeanEstimator.update(
+{
+    timestamp:
+        typeof event.timeStamp === "number"
+            ? event.timeStamp
+            : performance.now(),
+
+    accel:
+    {
+        x:
+            event.accelerationIncludingGravity?.x ?? 0,
+
+        y:
+            event.accelerationIncludingGravity?.y ?? 0,
+
+        z:
+            event.accelerationIncludingGravity?.z ?? 0
+    },
+
+    linearAccel:
+    {
+        x:
+            event.acceleration?.x ?? 0,
+
+        y:
+            event.acceleration?.y ?? 0,
+
+        z:
+            event.acceleration?.z ?? 0
+    },
+
+    gyro:
+    {
+        x:
+            event.rotationRate?.beta ?? 0,
+
+        y:
+            event.rotationRate?.gamma ?? 0,
+
+        z:
+            event.rotationRate?.alpha ?? 0
+    },
+
+    intervalMs:
+        typeof event.interval === "number"
+            ? event.interval
+            : null,
+
+    gps:
+    {
+        speedKmh:
+            latestSpeedKmh,
+
+        headingDeg:
+            latestGpsHeadingDeg,
+
+        accuracyM:
+            latestGpsAccuracyM
+    }
+});
+console.debug(
+    "IMU estimator",
+    imuResult
+);
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
