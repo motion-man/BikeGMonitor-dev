@@ -1,8 +1,8 @@
 const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
-const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV1";
+const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV2";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.5.3-dev1";
+const APP_VERSION = "0.6.0-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -131,6 +131,7 @@ const gpsStatusText =
 let sensorsStarted = false;
 let savedCalibration = null;
 let maximumLeanAngle = 0;
+let filteredSignedLeanAngle = 0;
 let wakeLockSentinel = null;
 
 let filteredForwardG = 0;
@@ -198,6 +199,8 @@ let calibrationTotals =
     x: 0,
     y: 0,
     z: 0,
+    alphaSin: 0,
+    alphaCos: 0,
     beta: 0,
     gamma: 0,
     orientationSamples: 0
@@ -394,10 +397,6 @@ function handleMotion(event)
         event.interval
     );
 
-    updateLeanAngle(
-        event.accelerationIncludingGravity
-    );
-
     updateForwardG(
         event.acceleration
     );
@@ -502,6 +501,8 @@ function handleOrientation(event)
 
     orientationGammaText.textContent =
         formatNumber(event.gamma, 1);
+
+    updateLeanAngleFromOrientation();
 }
 
 function updateSamplingInformation(interval)
@@ -542,6 +543,8 @@ function startCalibration()
         x: 0,
         y: 0,
         z: 0,
+        alphaSin: 0,
+        alphaCos: 0,
         beta: 0,
         gamma: 0,
         orientationSamples: 0
@@ -577,10 +580,20 @@ function collectCalibrationSample(acceleration)
     calibrationSampleCount++;
 
     if (
+        latestOrientation.alpha !== null &&
         latestOrientation.beta !== null &&
         latestOrientation.gamma !== null
     )
     {
+        const alphaRadians =
+            latestOrientation.alpha * Math.PI / 180;
+
+        calibrationTotals.alphaSin +=
+            Math.sin(alphaRadians);
+
+        calibrationTotals.alphaCos +=
+            Math.cos(alphaRadians);
+
         calibrationTotals.beta += latestOrientation.beta;
         calibrationTotals.gamma += latestOrientation.gamma;
         calibrationTotals.orientationSamples++;
@@ -614,14 +627,24 @@ function finishCalibration()
         z: calibrationTotals.z /
             calibrationSampleCount,
 
+        alpha: null,
         beta: null,
         gamma: null,
-
+        orientationMatrix: null,
+        forwardVector: null,
         savedAt: new Date().toISOString()
     };
 
     if (calibrationTotals.orientationSamples > 0)
     {
+        calibration.alpha =
+            normalizeDegrees(
+                Math.atan2(
+                    calibrationTotals.alphaSin,
+                    calibrationTotals.alphaCos
+                ) * 180 / Math.PI
+            );
+
         calibration.beta =
             calibrationTotals.beta /
             calibrationTotals.orientationSamples;
@@ -629,6 +652,47 @@ function finishCalibration()
         calibration.gamma =
             calibrationTotals.gamma /
             calibrationTotals.orientationSamples;
+
+        calibration.orientationMatrix =
+            deviceOrientationMatrix(
+                calibration.alpha,
+                calibration.beta,
+                calibration.gamma
+            );
+    }
+
+    const uprightGravity = normalizeVector(
+        calibration.x,
+        calibration.y,
+        calibration.z
+    );
+
+    if (uprightGravity)
+    {
+        const screenTop = { x: 0, y: 1, z: 0 };
+
+        calibration.forwardVector = normalizeObject(
+            subtractVector(
+                screenTop,
+                scaleVector(
+                    uprightGravity,
+                    dotProduct(screenTop, uprightGravity)
+                )
+            )
+        );
+    }
+
+    if (
+        !calibration.orientationMatrix ||
+        !calibration.forwardVector
+    )
+    {
+        calibrationActive = false;
+        calibrateButton.disabled = false;
+        calibrateButton.textContent = "Calibrate";
+        calibrationStatusText.textContent =
+            "Orientation unavailable — calibration failed";
+        return;
     }
 
     try
@@ -639,12 +703,13 @@ function finishCalibration()
         );
 
         savedCalibration = calibration;
+        filteredSignedLeanAngle = 0;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
         resetMaximumLean();
 
         calibrationStatusText.textContent =
-            "Calibration complete and saved";
+            "Orientation calibration complete and saved";
     }
     catch (error)
     {
@@ -677,9 +742,14 @@ function loadSavedCalibration()
         if (
             typeof calibration.x !== "number" ||
             typeof calibration.y !== "number" ||
-            typeof calibration.z !== "number"
+            typeof calibration.z !== "number" ||
+            !Array.isArray(calibration.orientationMatrix) ||
+            calibration.orientationMatrix.length !== 9 ||
+            !calibration.forwardVector
         )
         {
+            calibrationStatusText.textContent =
+                "Fresh upright calibration required";
             return;
         }
 
@@ -716,7 +786,7 @@ function displayCalibration(calibration)
 }
 
 
-function updateLeanAngle(acceleration)
+function updateLeanAngleFromOrientation()
 {
     if (!savedCalibration)
     {
@@ -725,94 +795,120 @@ function updateLeanAngle(acceleration)
         return;
     }
 
-    if (!acceleration)
+    if (
+        latestOrientation.alpha === null ||
+        latestOrientation.beta === null ||
+        latestOrientation.gamma === null
+    )
     {
         leanAngleText.textContent = "N/A";
-        leanStatusText.textContent = "No motion data";
+        leanStatusText.textContent = "Waiting for orientation";
         return;
     }
 
-    const currentGravity = normalizeVector(
-        acceleration.x / GRAVITY,
-        acceleration.y / GRAVITY,
-        acceleration.z / GRAVITY
+    const currentMatrix = deviceOrientationMatrix(
+        latestOrientation.alpha,
+        latestOrientation.beta,
+        latestOrientation.gamma
     );
 
-    const uprightGravity = normalizeVector(
+    if (!currentMatrix)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Invalid orientation data";
+        return;
+    }
+
+    const referenceMatrix =
+        savedCalibration.orientationMatrix;
+
+    const relativeMatrix = multiplyMatrices3(
+        transposeMatrix3(referenceMatrix),
+        currentMatrix
+    );
+
+    const uprightVector = normalizeVector(
         savedCalibration.x,
         savedCalibration.y,
         savedCalibration.z
     );
 
-    if (!currentGravity || !uprightGravity)
+    const forward = normalizeObject(
+        savedCalibration.forwardVector
+    );
+
+    if (!uprightVector || !forward)
     {
         leanAngleText.textContent = "N/A";
-        leanStatusText.textContent = "Invalid sensor data";
+        leanStatusText.textContent = "Recalibrate upright";
         return;
     }
 
-    const screenTop = { x: 0, y: 1, z: 0 };
-
-    const forward = normalizeObject(
-        subtractVector(
-            screenTop,
-            scaleVector(
-                uprightGravity,
-                dotProduct(screenTop, uprightGravity)
-            )
+    const currentUpInReference = normalizeObject(
+        multiplyMatrixVector3(
+            relativeMatrix,
+            uprightVector
         )
     );
 
-    if (!forward)
-    {
-        leanAngleText.textContent = "N/A";
-        leanStatusText.textContent = "Mount angle is unsuitable";
-        return;
-    }
-
-    const uprightRollPlane = normalizeObject(
+    const referenceRollPlane = normalizeObject(
         subtractVector(
-            uprightGravity,
+            uprightVector,
             scaleVector(
                 forward,
-                dotProduct(uprightGravity, forward)
+                dotProduct(uprightVector, forward)
             )
         )
     );
 
     const currentRollPlane = normalizeObject(
         subtractVector(
-            currentGravity,
+            currentUpInReference,
             scaleVector(
                 forward,
-                dotProduct(currentGravity, forward)
+                dotProduct(currentUpInReference, forward)
             )
         )
     );
 
-    if (!uprightRollPlane || !currentRollPlane)
+    if (!referenceRollPlane || !currentRollPlane)
     {
         leanAngleText.textContent = "N/A";
-        leanStatusText.textContent = "Unable to calculate";
+        leanStatusText.textContent = "Unable to isolate lean";
         return;
     }
 
     const cross = crossProduct(
-        uprightRollPlane,
+        referenceRollPlane,
         currentRollPlane
     );
 
-    const sinAngle = dotProduct(forward, cross);
-    const cosAngle = clamp(
-        dotProduct(uprightRollPlane, currentRollPlane),
-        -1,
-        1
-    );
+    const rawSignedAngle =
+        Math.atan2(
+            dotProduct(forward, cross),
+            clamp(
+                dotProduct(
+                    referenceRollPlane,
+                    currentRollPlane
+                ),
+                -1,
+                1
+            )
+        ) * 180 / Math.PI;
 
-    const signedAngle =
-        Math.atan2(sinAngle, cosAngle) * 180 / Math.PI;
+    const smoothing = 0.16;
 
-    const absoluteAngle = Math.abs(signedAngle);
+    filteredSignedLeanAngle +=
+        smoothing *
+        (rawSignedAngle - filteredSignedLeanAngle);
+
+    if (Math.abs(filteredSignedLeanAngle) < 0.6)
+    {
+        filteredSignedLeanAngle = 0;
+    }
+
+    const absoluteAngle =
+        Math.abs(filteredSignedLeanAngle);
 
     latestLeanAngle = absoluteAngle;
 
@@ -824,7 +920,7 @@ function updateLeanAngle(acceleration)
         latestLeanDirection = "UPRIGHT";
         leanDirectionText.textContent = "UPRIGHT";
     }
-    else if (signedAngle > 0)
+    else if (filteredSignedLeanAngle > 0)
     {
         latestLeanDirection = "LEFT";
         leanDirectionText.textContent = "LEFT";
@@ -843,7 +939,7 @@ function updateLeanAngle(acceleration)
     }
 
     leanStatusText.textContent =
-        "Calibrated bike lean";
+        "Fused orientation lean";
 }
 
 
@@ -1684,6 +1780,7 @@ function updateForwardG(acceleration)
 function resetMaximumLean()
 {
     maximumLeanAngle = 0;
+    filteredSignedLeanAngle = 0;
     maximumAccelG = 0;
     maximumBrakeG = 0;
     maximumSpeedKmh = 0;
@@ -1692,6 +1789,95 @@ function resetMaximumLean()
     maxAccelGText.textContent = "0.00 G";
     maxBrakeGText.textContent = "0.00 G";
     maxSpeedText.textContent = "0 km/h";
+}
+
+function deviceOrientationMatrix(alpha, beta, gamma)
+{
+    if (
+        !Number.isFinite(alpha) ||
+        !Number.isFinite(beta) ||
+        !Number.isFinite(gamma)
+    )
+    {
+        return null;
+    }
+
+    const z = alpha * Math.PI / 180;
+    const x = beta * Math.PI / 180;
+    const y = gamma * Math.PI / 180;
+
+    const cZ = Math.cos(z);
+    const sZ = Math.sin(z);
+    const cX = Math.cos(x);
+    const sX = Math.sin(x);
+    const cY = Math.cos(y);
+    const sY = Math.sin(y);
+
+    return [
+        cZ * cY - sZ * sX * sY,
+        -cX * sZ,
+        cY * sZ * sX + cZ * sY,
+
+        cY * sZ + cZ * sX * sY,
+        cZ * cX,
+        sZ * sY - cZ * cY * sX,
+
+        -cX * sY,
+        sX,
+        cX * cY
+    ];
+}
+
+function transposeMatrix3(matrix)
+{
+    return [
+        matrix[0], matrix[3], matrix[6],
+        matrix[1], matrix[4], matrix[7],
+        matrix[2], matrix[5], matrix[8]
+    ];
+}
+
+function multiplyMatrices3(a, b)
+{
+    const result = new Array(9);
+
+    for (let row = 0; row < 3; row++)
+    {
+        for (let column = 0; column < 3; column++)
+        {
+            result[row * 3 + column] =
+                a[row * 3] * b[column] +
+                a[row * 3 + 1] * b[3 + column] +
+                a[row * 3 + 2] * b[6 + column];
+        }
+    }
+
+    return result;
+}
+
+function multiplyMatrixVector3(matrix, vector)
+{
+    return {
+        x:
+            matrix[0] * vector.x +
+            matrix[1] * vector.y +
+            matrix[2] * vector.z,
+
+        y:
+            matrix[3] * vector.x +
+            matrix[4] * vector.y +
+            matrix[5] * vector.z,
+
+        z:
+            matrix[6] * vector.x +
+            matrix[7] * vector.y +
+            matrix[8] * vector.z
+    };
+}
+
+function normalizeDegrees(degrees)
+{
+    return ((degrees % 360) + 360) % 360;
 }
 
 function normalizeVector(x, y, z)
