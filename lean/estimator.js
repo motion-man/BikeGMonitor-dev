@@ -24,6 +24,18 @@ const LeanEstimator =
     lastAccelerometerLeanDeg: null,
     lastGyroPredictedAngleDeg: 0,
     lastFusedAngleDeg: 0,
+    lastGyroDevice:
+    {
+        x: 0,
+        y: 0,
+        z: 0
+    },
+    lastGyroReference:
+    {
+        x: 0,
+        y: 0,
+        z: 0
+    },
     lastMode: "GYRO",
 
     calibrate(sensorData)
@@ -101,6 +113,18 @@ const LeanEstimator =
                 accelerometerLean: null,
                 gyroPredictedAngle: 0,
                 fusedAngle: 0,
+                gyroDevice:
+                {
+                    x: 0,
+                    y: 0,
+                    z: 0
+                },
+                gyroReference:
+                {
+                    x: 0,
+                    y: 0,
+                    z: 0
+                },
                 confidence: 0,
                 mode: "UNCAL"
             };
@@ -115,6 +139,27 @@ const LeanEstimator =
             this.validVector(
                 sensorData?.gyroReference
             );
+
+        const gyroDevice =
+            this.validVector(
+                sensorData?.gyroDevice
+            );
+
+        this.lastGyroDevice =
+            gyroDevice ??
+            {
+                x: 0,
+                y: 0,
+                z: 0
+            };
+
+        this.lastGyroReference =
+            gyroReference ??
+            {
+                x: 0,
+                y: 0,
+                z: 0
+            };
 
         let rollRateDegPerSecond = 0;
         let confidence = 0.35;
@@ -320,6 +365,10 @@ const LeanEstimator =
                 this.lastGyroPredictedAngleDeg,
             fusedAngle:
                 this.lastFusedAngleDeg,
+            gyroDevice:
+                this.lastGyroDevice,
+            gyroReference:
+                this.lastGyroReference,
             confidence,
             mode:
                 this.lastMode
@@ -719,6 +768,18 @@ const LeanEstimator =
         this.lastAccelerometerLeanDeg = null;
         this.lastGyroPredictedAngleDeg = 0;
         this.lastFusedAngleDeg = 0;
+        this.lastGyroDevice =
+        {
+            x: 0,
+            y: 0,
+            z: 0
+        };
+        this.lastGyroReference =
+        {
+            x: 0,
+            y: 0,
+            z: 0
+        };
         this.lastMode = "GYRO";
 
         this.forwardAxis =

@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r13";
+const APP_VERSION = "0.8.0-r14";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -106,6 +106,24 @@ const imuGyroPredText =
 
 const imuFusedOutText =
     document.getElementById("imuFusedOut");
+
+const imuDevXText =
+    document.getElementById("imuDevX");
+
+const imuDevYText =
+    document.getElementById("imuDevY");
+
+const imuDevZText =
+    document.getElementById("imuDevZ");
+
+const imuRefXText =
+    document.getElementById("imuRefX");
+
+const imuRefYText =
+    document.getElementById("imuRefY");
+
+const imuRefZText =
+    document.getElementById("imuRefZ");
 
 const summaryRateText =
     document.getElementById("summaryRate");
@@ -581,6 +599,24 @@ function handleMotion(event)
 
     imuFusedOutText.textContent =
         imuResult.fusedAngle.toFixed(1) + "°";
+
+    imuDevXText.textContent =
+        imuResult.gyroDevice.x.toFixed(1);
+
+    imuDevYText.textContent =
+        imuResult.gyroDevice.y.toFixed(1);
+
+    imuDevZText.textContent =
+        imuResult.gyroDevice.z.toFixed(1);
+
+    imuRefXText.textContent =
+        imuResult.gyroReference.x.toFixed(1);
+
+    imuRefYText.textContent =
+        imuResult.gyroReference.y.toFixed(1);
+
+    imuRefZText.textContent =
+        imuResult.gyroReference.z.toFixed(1);
 
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
