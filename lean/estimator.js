@@ -264,6 +264,20 @@ const LeanEstimator =
         );
     },
 
+    zeroAngle(timestampMs = null)
+    {
+        this.rollAngleDeg = 0;
+
+        this.previousTimestampMs =
+            Number.isFinite(timestampMs)
+                ? timestampMs
+                : null;
+
+        return {
+            success: this.calibrated
+        };
+    },
+
     reset()
     {
         this.calibrated = false;

@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r4";
+const APP_VERSION = "0.8.0-r5";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -2346,8 +2346,17 @@ function finishSteeringCalibration()
             savedCalibration.steeringAxis
         );
 
+        /*
+         * The lock-to-lock sweep contains large deliberate motion.
+         * Discard everything integrated during calibration and begin
+         * the lean test from a fresh upright zero.
+         */
+        LeanEstimator.zeroAngle(
+            performance.now()
+        );
+
         steeringCalibrationStatusText.textContent =
-            "Steering profile and axis saved — verify lock-to-lock";
+            "Steering saved — centre bars, then test lean";
     }
     catch (error)
     {
