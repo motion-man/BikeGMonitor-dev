@@ -72,6 +72,15 @@ const summaryOrientationText =
 const summaryCalibrationText =
     document.getElementById("summaryCalibration");
 
+const imuLeanText =
+    document.getElementById("imuLean");
+
+const imuRateText =
+    document.getElementById("imuRate");
+
+const imuConfidenceText =
+    document.getElementById("imuConfidence");
+
 const summaryRateText =
     document.getElementById("summaryRate");
 
@@ -474,7 +483,16 @@ function handleMotion(event)
 });
 
     window.latestImuResult = imuResult;
-    
+
+    imuLeanText.textContent =
+    imuResult.leanAngle.toFixed(1) + "°";
+
+    imuRateText.textContent =
+    imuResult.leanRate.toFixed(1) + "°/s";
+
+    imuConfidenceText.textContent =
+    imuResult.confidence.toFixed(2);
+
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
