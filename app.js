@@ -2,7 +2,7 @@ const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV2";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.6.4-dev1";
+const APP_VERSION = "0.6.5-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -631,6 +631,7 @@ function finishCalibration()
         beta: null,
         gamma: null,
         orientationMatrix: null,
+        orientationUpVector: null,
         forwardVector: null,
         savedAt: new Date().toISOString()
     };
@@ -659,6 +660,12 @@ function finishCalibration()
                 calibration.beta,
                 calibration.gamma
             );
+
+        calibration.orientationUpVector =
+            worldUpInDeviceCoordinates(
+                calibration.beta,
+                calibration.gamma
+            );
     }
 
     const uprightGravity = normalizeVector(
@@ -684,6 +691,7 @@ function finishCalibration()
 
     if (
         !calibration.orientationMatrix ||
+        !calibration.orientationUpVector ||
         !calibration.forwardVector
     )
     {
@@ -745,6 +753,7 @@ function loadSavedCalibration()
             typeof calibration.z !== "number" ||
             !Array.isArray(calibration.orientationMatrix) ||
             calibration.orientationMatrix.length !== 9 ||
+            !calibration.orientationUpVector ||
             !calibration.forwardVector
         )
         {
@@ -796,7 +805,6 @@ function updateLeanAngleFromOrientation()
     }
 
     if (
-        latestOrientation.alpha === null ||
         latestOrientation.beta === null ||
         latestOrientation.gamma === null
     )
@@ -806,70 +814,56 @@ function updateLeanAngleFromOrientation()
         return;
     }
 
-    const currentMatrix = deviceOrientationMatrix(
-        latestOrientation.alpha,
-        latestOrientation.beta,
-        latestOrientation.gamma
-    );
+    /*
+     * Derive world vertical in the phone's own coordinate frame.
+     *
+     * Alpha/heading is deliberately excluded. Turning the handlebars
+     * changes yaw, but should not be interpreted as motorcycle lean.
+     */
+    const currentUp =
+        worldUpInDeviceCoordinates(
+            latestOrientation.beta,
+            latestOrientation.gamma
+        );
 
-    if (!currentMatrix)
-    {
-        leanAngleText.textContent = "N/A";
-        leanStatusText.textContent = "Invalid orientation data";
-        return;
-    }
+    const referenceUp =
+        normalizeObject(
+            savedCalibration.orientationUpVector
+        );
 
-    const referenceMatrix =
-        savedCalibration.orientationMatrix;
+    const forward =
+        normalizeObject(
+            savedCalibration.forwardVector
+        );
 
-    const relativeMatrix = multiplyMatrices3(
-        transposeMatrix3(referenceMatrix),
-        currentMatrix
-    );
-
-    const uprightVector = normalizeVector(
-        savedCalibration.x,
-        savedCalibration.y,
-        savedCalibration.z
-    );
-
-    const forward = normalizeObject(
-        savedCalibration.forwardVector
-    );
-
-    if (!uprightVector || !forward)
+    if (!currentUp || !referenceUp || !forward)
     {
         leanAngleText.textContent = "N/A";
         leanStatusText.textContent = "Recalibrate upright";
         return;
     }
 
-    const currentUpInReference = normalizeObject(
-        multiplyMatrixVector3(
-            relativeMatrix,
-            uprightVector
-        )
-    );
-
-    const referenceRollPlane = normalizeObject(
-        subtractVector(
-            uprightVector,
-            scaleVector(
-                forward,
-                dotProduct(uprightVector, forward)
+    const referenceRollPlane =
+        normalizeObject(
+            subtractVector(
+                referenceUp,
+                scaleVector(
+                    forward,
+                    dotProduct(referenceUp, forward)
+                )
             )
-        )
-    );
+        );
 
-    const currentRollPlane = normalizeObject(
-        subtractVector(
-            currentUpInReference,
-            scaleVector(
-                forward,
-                dotProduct(currentUpInReference, forward)
+    const currentRollPlane =
+        normalizeObject(
+            subtractVector(
+                currentUp,
+                scaleVector(
+                    forward,
+                    dotProduct(currentUp, forward)
+                )
             )
-        )
-    );
+        );
 
     if (!referenceRollPlane || !currentRollPlane)
     {
@@ -878,13 +872,18 @@ function updateLeanAngleFromOrientation()
         return;
     }
 
-    const cross = crossProduct(
-        referenceRollPlane,
-        currentRollPlane
-    );
+    const cross =
+        crossProduct(
+            referenceRollPlane,
+            currentRollPlane
+        );
 
+    /*
+     * Sign is inverted to retain the LEFT/RIGHT convention verified
+     * in v0.6.3 and v0.6.4.
+     */
     const rawSignedAngle =
-        Math.atan2(
+        -Math.atan2(
             dotProduct(forward, cross),
             clamp(
                 dotProduct(
@@ -896,26 +895,18 @@ function updateLeanAngleFromOrientation()
             )
         ) * 180 / Math.PI;
 
-    /*
-     * Use the orientation estimate continuously. Reject only sudden
-     * implausible jumps, rather than freezing the lean value during
-     * ordinary acceleration, braking or road vibration.
-     */
     const angleDifference =
         normalizeLeanDifference(
             rawSignedAngle,
             filteredSignedLeanAngle
         );
 
-    const plausibleJump =
-        Math.abs(angleDifference) <= 18;
-
-    if (plausibleJump)
+    /*
+     * Reject only sudden unrealistic jumps. Normal lean updates are
+     * continuous and do not depend on speed or acceleration.
+     */
+    if (Math.abs(angleDifference) <= 18)
     {
-        /*
-         * Faster response than v0.6.3 so the reading returns to
-         * upright promptly when the bike straightens.
-         */
         const smoothing = 0.38;
 
         filteredSignedLeanAngle +=
@@ -959,8 +950,9 @@ function updateLeanAngleFromOrientation()
     }
 
     leanStatusText.textContent =
-        "Continuous orientation lean";
+        "Yaw-independent orientation lean";
 }
+
 
 
 
@@ -1811,6 +1803,44 @@ function resetMaximumLean()
     maxBrakeGText.textContent = "0.00 G";
     maxSpeedText.textContent = "0 km/h";
 }
+
+function worldUpInDeviceCoordinates(beta, gamma)
+{
+    if (
+        !Number.isFinite(beta) ||
+        !Number.isFinite(gamma)
+    )
+    {
+        return null;
+    }
+
+    const betaRadians =
+        beta * Math.PI / 180;
+
+    const gammaRadians =
+        gamma * Math.PI / 180;
+
+    /*
+     * This is the third row of the transposed device-orientation
+     * matrix applied to world-up. It depends only on beta/gamma,
+     * making it invariant to alpha/yaw.
+     */
+    return normalizeObject(
+        {
+            x:
+                -Math.cos(betaRadians) *
+                Math.sin(gammaRadians),
+
+            y:
+                Math.sin(betaRadians),
+
+            z:
+                Math.cos(betaRadians) *
+                Math.cos(gammaRadians)
+        }
+    );
+}
+
 
 function normalizeLeanDifference(target, current)
 {
