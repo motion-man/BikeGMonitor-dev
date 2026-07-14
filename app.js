@@ -1,8 +1,8 @@
 const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
-const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV3";
+const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.7.1-dev1";
+const APP_VERSION = "0.7.2-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -203,6 +203,9 @@ let calibrationSampleCount = 0;
 let steeringCalibrationActive = false;
 let steeringCalibrationSampleCount = 0;
 let steeringCalibrationTimer = null;
+
+let steeringOrientationProfile = [];
+let lastSteeringProfileSampleMs = 0;
 
 let steeringCovariance =
 {
@@ -420,12 +423,6 @@ function handleMotion(event)
         event.rotationRate
     );
 
-    if (steeringCalibrationActive)
-    {
-        collectSteeringCalibrationSample(
-            event.rotationRate
-        );
-    }
 
     updateSamplingInformation(
         event.interval
@@ -535,6 +532,11 @@ function handleOrientation(event)
 
     orientationGammaText.textContent =
         formatNumber(event.gamma, 1);
+
+    if (steeringCalibrationActive)
+    {
+        collectSteeringProfileSample();
+    }
 
     updateLeanAngleFromOrientation();
 }
@@ -668,6 +670,7 @@ function finishCalibration()
         orientationUpVector: null,
         forwardVector: null,
         steeringAxis: null,
+        steeringProfile: null,
         savedAt: new Date().toISOString()
     };
 
@@ -812,9 +815,9 @@ function loadSavedCalibration()
         steeringCalibrateButton.disabled = false;
 
         steeringCalibrationStatusText.textContent =
-            calibration.steeringAxis
-                ? "Saved steering-axis calibration loaded"
-                : "Steering-axis calibration required";
+            Array.isArray(calibration.steeringProfile)
+                ? "Saved steering profile loaded"
+                : "Steering profile calibration required";
     }
     catch (error)
     {
@@ -851,11 +854,14 @@ function updateLeanAngleFromOrientation()
         return;
     }
 
-    if (!savedCalibration.steeringAxis)
+    if (
+        !Array.isArray(savedCalibration.steeringProfile) ||
+        savedCalibration.steeringProfile.length < 10
+    )
     {
         leanAngleText.textContent = "N/A";
         leanStatusText.textContent =
-            "Calibrate steering axis";
+            "Calibrate steering profile";
         return;
     }
 
@@ -891,120 +897,44 @@ function updateLeanAngleFromOrientation()
         return;
     }
 
-    /*
-     * Relative phone rotation since upright calibration.
-     */
     const relativeMatrix =
         multiplyMatrices3(
             transposeMatrix3(referenceMatrix),
             currentMatrix
         );
 
-    const relativeQuaternion =
+    const currentQuaternion =
         quaternionFromMatrix3(relativeMatrix);
-
-    const steeringAxis =
-        normalizeObject(
-            savedCalibration.steeringAxis
-        );
-
-    if (!relativeQuaternion || !steeringAxis)
-    {
-        leanAngleText.textContent = "N/A";
-        leanStatusText.textContent =
-            "Invalid steering calibration";
-        return;
-    }
-
-    /*
-     * Swing-twist decomposition:
-     * - twist = handlebar rotation around the measured steering axis
-     * - swing = the remaining motorcycle/body attitude
-     */
-    const steeringTwist =
-        extractQuaternionTwist(
-            relativeQuaternion,
-            steeringAxis
-        );
-
-    const bodySwing =
-        multiplyQuaternions(
-            relativeQuaternion,
-            conjugateQuaternion(steeringTwist)
-        );
-
-    const referenceUp =
-        normalizeObject(
-            savedCalibration.orientationUpVector
-        );
 
     const forward =
         normalizeObject(
             savedCalibration.forwardVector
         );
 
-    if (!referenceUp || !forward)
+    if (!currentQuaternion || !forward)
     {
         leanAngleText.textContent = "N/A";
         leanStatusText.textContent = "Recalibrate upright";
         return;
     }
 
-    const correctedUp =
-        normalizeObject(
-            rotateVectorByQuaternion(
-                referenceUp,
-                bodySwing
-            )
+    const result =
+        estimateLeanFromSteeringProfile(
+            currentQuaternion,
+            savedCalibration.steeringProfile,
+            forward
         );
 
-    const referenceRollPlane =
-        normalizeObject(
-            subtractVector(
-                referenceUp,
-                scaleVector(
-                    forward,
-                    dotProduct(referenceUp, forward)
-                )
-            )
-        );
-
-    const correctedRollPlane =
-        normalizeObject(
-            subtractVector(
-                correctedUp,
-                scaleVector(
-                    forward,
-                    dotProduct(correctedUp, forward)
-                )
-            )
-        );
-
-    if (!referenceRollPlane || !correctedRollPlane)
+    if (!result)
     {
         leanAngleText.textContent = "N/A";
-        leanStatusText.textContent = "Unable to isolate lean";
+        leanStatusText.textContent =
+            "Unable to match steering profile";
         return;
     }
 
-    const cross =
-        crossProduct(
-            referenceRollPlane,
-            correctedRollPlane
-        );
-
     const rawSignedAngle =
-        -Math.atan2(
-            dotProduct(forward, cross),
-            clamp(
-                dotProduct(
-                    referenceRollPlane,
-                    correctedRollPlane
-                ),
-                -1,
-                1
-            )
-        ) * 180 / Math.PI;
+        result.signedLean;
 
     const angleDifference =
         normalizeLeanDifference(
@@ -1057,8 +987,9 @@ function updateLeanAngleFromOrientation()
     }
 
     leanStatusText.textContent =
-        "Steering-compensated IMU lean";
+        "Steering-profile compensated lean";
 }
+
 
 
 
@@ -1925,6 +1856,8 @@ function startSteeringCalibration()
 
     steeringCalibrationActive = true;
     steeringCalibrationSampleCount = 0;
+    steeringOrientationProfile = [];
+    lastSteeringProfileSampleMs = 0;
 
     steeringCovariance =
     {
@@ -1951,6 +1884,71 @@ function startSteeringCalibration()
             6000
         );
 }
+
+function collectSteeringProfileSample()
+{
+    if (
+        !savedCalibration ||
+        latestOrientation.alpha === null ||
+        latestOrientation.beta === null ||
+        latestOrientation.gamma === null
+    )
+    {
+        return;
+    }
+
+    const nowMs = performance.now();
+
+    /*
+     * About 20 samples per second is enough to describe the complete
+     * steering path without creating an unnecessarily large profile.
+     */
+    if (nowMs - lastSteeringProfileSampleMs < 50)
+    {
+        return;
+    }
+
+    const currentMatrix =
+        deviceOrientationMatrix(
+            latestOrientation.alpha,
+            latestOrientation.beta,
+            latestOrientation.gamma
+        );
+
+    const referenceMatrix =
+        savedCalibration.orientationMatrix;
+
+    if (
+        !currentMatrix ||
+        !Array.isArray(referenceMatrix) ||
+        referenceMatrix.length !== 9
+    )
+    {
+        return;
+    }
+
+    const relativeMatrix =
+        multiplyMatrices3(
+            transposeMatrix3(referenceMatrix),
+            currentMatrix
+        );
+
+    const relativeQuaternion =
+        quaternionFromMatrix3(relativeMatrix);
+
+    if (!relativeQuaternion)
+    {
+        return;
+    }
+
+    steeringOrientationProfile.push(
+        relativeQuaternion
+    );
+
+    steeringCalibrationSampleCount++;
+    lastSteeringProfileSampleMs = nowMs;
+}
+
 
 function collectSteeringCalibrationSample(rotationRate)
 {
@@ -2103,27 +2101,17 @@ function finishSteeringCalibration()
     steeringCalibrateButton.textContent =
         "Calibrate Steering";
 
-    if (steeringCalibrationSampleCount < 30)
+    if (steeringOrientationProfile.length < 25)
     {
         steeringCalibrationStatusText.textContent =
-            "Not enough steering movement — retry";
+            "Not enough steering sweep samples — retry";
         return;
     }
 
-    const steeringAxis =
-        principalAxisFromCovariance(
-            steeringCovariance
-        );
+    savedCalibration.steeringProfile =
+        steeringOrientationProfile;
 
-    if (!steeringAxis)
-    {
-        steeringCalibrationStatusText.textContent =
-            "Could not determine steering axis";
-        return;
-    }
-
-    savedCalibration.steeringAxis =
-        steeringAxis;
+    savedCalibration.steeringAxis = null;
 
     savedCalibration.steeringSavedAt =
         new Date().toISOString();
@@ -2139,14 +2127,15 @@ function finishSteeringCalibration()
         resetMaximumLean();
 
         steeringCalibrationStatusText.textContent =
-            "Steering axis saved — turn bars to verify zero lean";
+            "Steering profile saved — turn bars to verify zero lean";
     }
     catch (error)
     {
         steeringCalibrationStatusText.textContent =
-            "Steering axis found, but could not be saved";
+            "Steering profile found, but could not be saved";
     }
 }
+
 
 function principalAxisFromCovariance(covariance)
 {
@@ -2192,6 +2181,138 @@ function principalAxisFromCovariance(covariance)
 
     return vector;
 }
+
+function estimateLeanFromSteeringProfile(
+    currentQuaternion,
+    steeringProfile,
+    forwardAxis
+)
+{
+    let bestResult = null;
+    let bestScore = Infinity;
+
+    for (const steeringQuaternion of steeringProfile)
+    {
+        const steering =
+            normalizeQuaternion(steeringQuaternion);
+
+        if (!steering)
+        {
+            continue;
+        }
+
+        /*
+         * Remove this candidate steering orientation from the current
+         * phone orientation.
+         */
+        const residual =
+            multiplyQuaternions(
+                currentQuaternion,
+                conjugateQuaternion(steering)
+            );
+
+        if (!residual)
+        {
+            continue;
+        }
+
+        /*
+         * Motorcycle lean should appear primarily as rotation around
+         * the calibrated bike-forward axis.
+         */
+        const rollTwist =
+            extractQuaternionTwist(
+                residual,
+                forwardAxis
+            );
+
+        const nonRollResidual =
+            multiplyQuaternions(
+                residual,
+                conjugateQuaternion(rollTwist)
+            );
+
+        const score =
+            quaternionRotationMagnitudeDegrees(
+                nonRollResidual
+            );
+
+        if (score < bestScore)
+        {
+            bestScore = score;
+
+            bestResult =
+            {
+                signedLean:
+                    signedQuaternionAngleDegrees(
+                        rollTwist,
+                        forwardAxis
+                    ),
+
+                score: score
+            };
+        }
+    }
+
+    return bestResult;
+}
+
+function signedQuaternionAngleDegrees(
+    quaternion,
+    axis
+)
+{
+    const normalized =
+        normalizeQuaternion(quaternion);
+
+    if (!normalized)
+    {
+        return 0;
+    }
+
+    const signedVector =
+        normalized.x * axis.x +
+        normalized.y * axis.y +
+        normalized.z * axis.z;
+
+    return (
+        2 *
+        Math.atan2(
+            signedVector,
+            normalized.w
+        ) *
+        180 /
+        Math.PI
+    );
+}
+
+function quaternionRotationMagnitudeDegrees(
+    quaternion
+)
+{
+    const normalized =
+        normalizeQuaternion(quaternion);
+
+    if (!normalized)
+    {
+        return Infinity;
+    }
+
+    const clampedW =
+        clamp(
+            Math.abs(normalized.w),
+            -1,
+            1
+        );
+
+    return (
+        2 *
+        Math.acos(clampedW) *
+        180 /
+        Math.PI
+    );
+}
+
 
 function quaternionFromMatrix3(matrix)
 {
