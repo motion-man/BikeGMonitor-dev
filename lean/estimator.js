@@ -1,4 +1,6 @@
-const LeanEstimator =
+
+
+console.log("BikeG Lean Engine v0.8.0 loaded");const LeanEstimator =
 {
     calibrated: false,
     rollAngleDeg: 0,
