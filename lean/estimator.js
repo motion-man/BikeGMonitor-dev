@@ -93,7 +93,7 @@ const LeanEstimator =
 
         const gyroReference =
             this.validVector(
-                sensorData?.gyroDevice
+                sensorData?.gyroReference
             );
 
         let rollRateDegPerSecond = 0;
