@@ -17,6 +17,10 @@ const LeanEstimator =
 
     lastSteeringRateDegPerSecond: 0,
     lastIntegrationWeight: 1,
+    lastRawRollRateDegPerSecond: 0,
+    lastRawSteeringRateDegPerSecond: 0,
+    lastOmegaForwardDegPerSecond: 0,
+    lastOmegaSteeringDegPerSecond: 0,
     lastMode: "GYRO",
 
     calibrate(sensorData)
@@ -87,6 +91,10 @@ const LeanEstimator =
                 leanAngle: 0,
                 leanRate: 0,
                 steeringRate: 0,
+                rawRollRate: 0,
+                rawSteeringRate: 0,
+                omegaForward: 0,
+                omegaSteering: 0,
                 confidence: 0,
                 mode: "UNCAL"
             };
@@ -118,6 +126,18 @@ const LeanEstimator =
             this.lastSteeringRateDegPerSecond =
                 rates.steeringRate;
 
+            this.lastRawRollRateDegPerSecond =
+                rates.rollRate;
+
+            this.lastRawSteeringRateDegPerSecond =
+                rates.steeringRate;
+
+            this.lastOmegaForwardDegPerSecond =
+                rates.omegaForward;
+
+            this.lastOmegaSteeringDegPerSecond =
+                rates.omegaSteering;
+
             this.lastIntegrationWeight =
                 this.steeringIntegrationWeight(
                     rates.rollRate,
@@ -132,6 +152,10 @@ const LeanEstimator =
         else
         {
             this.lastSteeringRateDegPerSecond = 0;
+            this.lastRawRollRateDegPerSecond = 0;
+            this.lastRawSteeringRateDegPerSecond = 0;
+            this.lastOmegaForwardDegPerSecond = 0;
+            this.lastOmegaSteeringDegPerSecond = 0;
             this.lastIntegrationWeight = 1;
         }
 
@@ -258,6 +282,14 @@ const LeanEstimator =
             leanRate: rollRateDegPerSecond,
             steeringRate:
                 this.lastSteeringRateDegPerSecond,
+            rawRollRate:
+                this.lastRawRollRateDegPerSecond,
+            rawSteeringRate:
+                this.lastRawSteeringRateDegPerSecond,
+            omegaForward:
+                this.lastOmegaForwardDegPerSecond,
+            omegaSteering:
+                this.lastOmegaSteeringDegPerSecond,
             confidence,
             mode:
                 this.lastMode
@@ -271,14 +303,22 @@ const LeanEstimator =
 
         if (!this.steeringAxis)
         {
+            const omegaForward =
+                this.dot(
+                    angularVelocityReference,
+                    forward
+                );
+
             return {
                 rollRate:
-                    this.dot(
-                        angularVelocityReference,
-                        forward
-                    ),
+                    omegaForward,
 
-                steeringRate: 0
+                steeringRate: 0,
+
+                omegaForward:
+                    omegaForward,
+
+                omegaSteering: 0
             };
         }
 
@@ -325,6 +365,12 @@ const LeanEstimator =
                     omegaForward,
 
                 steeringRate:
+                    omegaSteering,
+
+                omegaForward:
+                    omegaForward,
+
+                omegaSteering:
                     omegaSteering
             };
         }
@@ -342,7 +388,13 @@ const LeanEstimator =
                     omegaSteering -
                     coupling * omegaForward
                 ) /
-                denominator
+                denominator,
+
+            omegaForward:
+                omegaForward,
+
+            omegaSteering:
+                omegaSteering
         };
     },
 
@@ -630,6 +682,10 @@ const LeanEstimator =
         this.uprightGravity = null;
         this.lastSteeringRateDegPerSecond = 0;
         this.lastIntegrationWeight = 1;
+        this.lastRawRollRateDegPerSecond = 0;
+        this.lastRawSteeringRateDegPerSecond = 0;
+        this.lastOmegaForwardDegPerSecond = 0;
+        this.lastOmegaSteeringDegPerSecond = 0;
         this.lastMode = "GYRO";
 
         this.forwardAxis =

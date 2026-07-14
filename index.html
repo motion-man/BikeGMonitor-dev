@@ -20,7 +20,7 @@
     <header class="appHeader">
         <h1>Bike G Monitor</h1>
         <div class="branchLabel">
-            Development · v0.8.0-r11
+            Development · v0.8.0-r12
         </div>
     </header>
 
@@ -66,6 +66,22 @@
 
                 <div class="peakLine">
                     MODE <span id="imuMode">GYRO</span>
+                </div>
+
+                <div class="peakLine">
+                    ROLL RAW <span id="imuRawRollRate">0.0°/s</span>
+                </div>
+
+                <div class="peakLine">
+                    STEER RAW <span id="imuRawSteeringRate">0.0°/s</span>
+                </div>
+
+                <div class="peakLine">
+                    OMEGA FWD <span id="imuOmegaForward">0.0°/s</span>
+                </div>
+
+                <div class="peakLine">
+                    OMEGA STR <span id="imuOmegaSteering">0.0°/s</span>
                 </div>
             </div>
 
@@ -253,7 +269,7 @@
 
     </main>
 
-    <script type="module" src="app.js?v=0.8.0-r11"></script>
+    <script type="module" src="app.js?v=0.8.0-r12"></script>
 
 </body>
 </html>
