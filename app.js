@@ -2,7 +2,7 @@ const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV2";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.6.2-dev1";
+const APP_VERSION = "0.6.3-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -939,7 +939,7 @@ function updateLeanAngleFromOrientation()
             );
     }
 
-    if (Math.abs(filteredSignedLeanAngle) < 0.8)
+    if (Math.abs(filteredSignedLeanAngle) < 0.35)
     {
         filteredSignedLeanAngle = 0;
     }
@@ -952,20 +952,20 @@ function updateLeanAngleFromOrientation()
     leanAngleText.textContent =
         absoluteAngle.toFixed(1) + "°";
 
-    if (absoluteAngle < 0.8)
+    if (absoluteAngle < 0.5)
     {
         latestLeanDirection = "UPRIGHT";
         leanDirectionText.textContent = "UPRIGHT";
     }
     else if (filteredSignedLeanAngle > 0)
     {
-        latestLeanDirection = "LEFT";
-        leanDirectionText.textContent = "LEFT";
+        latestLeanDirection = "RIGHT";
+        leanDirectionText.textContent = "RIGHT";
     }
     else
     {
-        latestLeanDirection = "RIGHT";
-        leanDirectionText.textContent = "RIGHT";
+        latestLeanDirection = "LEFT";
+        leanDirectionText.textContent = "LEFT";
     }
 
     if (absoluteAngle > maximumLeanAngle)
