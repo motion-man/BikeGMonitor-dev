@@ -43,44 +43,48 @@
         </section>
 
         <section class="metricGrid">
-            <div class="metricCard">
-                <div class="cardLabel">MAX LEAN</div>
-                <div id="maxLean" class="metricValue">0.0°</div>
-            </div>
+    <div class="metricCard">
+        <div class="cardLabel">MAX LEAN</div>
+        <div id="maxLean" class="metricValue">0.0°</div>
+    </div>
 
 
-            <div class="metricCard">
-                <div class="cardLabel">IMU LEAN</div>
-                <div id="imuLean" class="metricValue">0.0°</div>
-                <div id="imuRate" class="cardStatus">0.0°/s</div>
-                <div id="imuConfidence" class="cardStatus">0.00</div>
-            </div>
+    <div class="metricCard">
+        <div class="cardLabel">IMU ENGINE</div>
+        <div id="imuLean" class="metricValue">0.0°</div>
+        <div class="peakLine">
+        RATE <span id="imuRate">0.0°/s</span>
+    </div>
 
-            <div class="metricCard">
-                <div class="cardLabel">ACCEL G</div>
-                <div id="accelG" class="metricValue">--</div>
-                <div class="peakLine">
-                    MAX <span id="maxAccelG">0.00 G</span>
-                </div>
-            </div>
+    <div class="peakLine">
+        CONF <span id="imuConfidence">0.00</span>
+    </div>
+</div>
 
-            <div class="metricCard">
-                <div class="cardLabel">BRAKE G</div>
-                <div id="brakeG" class="metricValue">--</div>
-                <div class="peakLine">
-                    MAX <span id="maxBrakeG">0.00 G</span>
-                </div>
-            </div>
+    <div class="metricCard">
+        <div class="cardLabel">ACCEL G</div>
+        <div id="accelG" class="metricValue">--</div>
+        <div class="peakLine">
+            MAX <span id="maxAccelG">0.00 G</span>
+        </div>
+    </div>
 
-            <div class="metricCard">
-                <div class="cardLabel">SPEED</div>
-                <div id="speed" class="metricValue">--</div>
-                <div class="peakLine">
-                    MAX <span id="maxSpeed">0 km/h</span>
-                </div>
-            </div>
-        </section>
+    <div class="metricCard">
+        <div class="cardLabel">BRAKE G</div>
+        <div id="brakeG" class="metricValue">--</div>
+        <div class="peakLine">
+            MAX <span id="maxBrakeG">0.00 G</span>
+        </div>
+    </div>
 
+    <div class="metricCard">
+        <div class="cardLabel">SPEED</div>
+        <div id="speed" class="metricValue">--</div>
+        <div class="peakLine">
+            MAX <span id="maxSpeed">0 km/h</span>
+        </div>
+    </div>
+</section>
         <div id="signedForwardG" class="signedGStatus">
             Calibrate first
         </div>
