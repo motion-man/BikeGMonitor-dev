@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r5";
+const APP_VERSION = "0.8.0-r6";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -2347,16 +2347,31 @@ function finishSteeringCalibration()
         );
 
         /*
-         * The lock-to-lock sweep contains large deliberate motion.
-         * Discard everything integrated during calibration and begin
-         * the lean test from a fresh upright zero.
+         * The steering sweep may finish with the bars at either lock.
+         * Give the rider time to centre the bars before establishing
+         * the final IMU upright zero.
          */
-        LeanEstimator.zeroAngle(
-            performance.now()
-        );
+        steeringCalibrateButton.disabled = true;
+        calibrateButton.disabled = true;
 
         steeringCalibrationStatusText.textContent =
-            "Steering saved — centre bars, then test lean";
+            "Centre bars and hold bike upright — zeroing in 4 seconds";
+
+        window.setTimeout(
+            function ()
+            {
+                LeanEstimator.zeroAngle(
+                    performance.now()
+                );
+
+                steeringCalibrateButton.disabled = false;
+                calibrateButton.disabled = false;
+
+                steeringCalibrationStatusText.textContent =
+                    "IMU zeroed — begin upright/left/right test";
+            },
+            4000
+        );
     }
     catch (error)
     {
