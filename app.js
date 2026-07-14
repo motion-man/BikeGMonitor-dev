@@ -473,6 +473,8 @@ function handleMotion(event)
     }
 });
 
+    window.latestImuResult = imuResult;
+    
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
