@@ -2,7 +2,7 @@ const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV2";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.6.3-dev1";
+const APP_VERSION = "0.6.4-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -897,46 +897,29 @@ function updateLeanAngleFromOrientation()
         ) * 180 / Math.PI;
 
     /*
-     * Browser orientation can be disturbed by straight-line
-     * acceleration, braking and bumps. During those moments, hold
-     * the last good lean value rather than accepting the disturbed
-     * orientation estimate.
+     * Use the orientation estimate continuously. Reject only sudden
+     * implausible jumps, rather than freezing the lean value during
+     * ordinary acceleration, braking or road vibration.
      */
-    const linearMagnitudeG =
-        Math.sqrt(
-            Math.pow(
-                (latestLinearAcceleration.x ?? 0) / GRAVITY,
-                2
-            ) +
-            Math.pow(
-                (latestLinearAcceleration.y ?? 0) / GRAVITY,
-                2
-            ) +
-            Math.pow(
-                (latestLinearAcceleration.z ?? 0) / GRAVITY,
-                2
-            )
+    const angleDifference =
+        normalizeLeanDifference(
+            rawSignedAngle,
+            filteredSignedLeanAngle
         );
 
-    const strongMotion =
-        Number.isFinite(linearMagnitudeG) &&
-        linearMagnitudeG > 0.12;
+    const plausibleJump =
+        Math.abs(angleDifference) <= 18;
 
-    if (!strongMotion)
+    if (plausibleJump)
     {
         /*
-         * Restore the stable v0.6.0 response when motion is calm.
-         * A slightly stronger gain helps the reading return cleanly
-         * to upright after acceleration ends.
+         * Faster response than v0.6.3 so the reading returns to
+         * upright promptly when the bike straightens.
          */
-        const smoothing = 0.24;
+        const smoothing = 0.38;
 
         filteredSignedLeanAngle +=
-            smoothing *
-            normalizeLeanDifference(
-                rawSignedAngle,
-                filteredSignedLeanAngle
-            );
+            smoothing * angleDifference;
     }
 
     if (Math.abs(filteredSignedLeanAngle) < 0.35)
@@ -976,9 +959,7 @@ function updateLeanAngleFromOrientation()
     }
 
     leanStatusText.textContent =
-        strongMotion
-            ? "Lean held during acceleration"
-            : "Acceleration-gated orientation lean";
+        "Continuous orientation lean";
 }
 
 
