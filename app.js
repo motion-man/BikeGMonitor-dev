@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r9";
+const APP_VERSION = "0.8.0-r10";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -79,6 +79,12 @@ const imuRateText =
 
 const imuConfidenceText =
     document.getElementById("imuConfidence");
+
+const imuSteeringRateText =
+    document.getElementById("imuSteeringRate");
+
+const imuModeText =
+    document.getElementById("imuMode");
 
 const summaryRateText =
     document.getElementById("summaryRate");
@@ -525,6 +531,12 @@ function handleMotion(event)
 
     imuConfidenceText.textContent =
         imuResult.confidence.toFixed(2);
+
+    imuSteeringRateText.textContent =
+        imuResult.steeringRate.toFixed(1) + "°/s";
+
+    imuModeText.textContent =
+        imuResult.mode;
 
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity

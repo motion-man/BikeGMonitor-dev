@@ -15,6 +15,9 @@ const LeanEstimator =
     steeringAxis: null,
     uprightGravity: null,
 
+    lastSteeringRateDegPerSecond: 0,
+    lastMode: "GYRO",
+
     calibrate(sensorData)
     {
         if (!this.setForwardAxis(sensorData?.forwardAxis))
@@ -82,7 +85,9 @@ const LeanEstimator =
             return {
                 leanAngle: 0,
                 leanRate: 0,
-                confidence: 0
+                steeringRate: 0,
+                confidence: 0,
+                mode: "UNCAL"
             };
         }
 
@@ -101,15 +106,25 @@ const LeanEstimator =
 
         if (gyroReference)
         {
-            rollRateDegPerSecond =
-                this.solveRollRate(
+            const rates =
+                this.solveAngularRates(
                     gyroReference
                 );
+
+            rollRateDegPerSecond =
+                rates.rollRate;
+
+            this.lastSteeringRateDegPerSecond =
+                rates.steeringRate;
 
             confidence =
                 this.steeringAxis
                     ? 0.70
                     : 0.50;
+        }
+        else
+        {
+            this.lastSteeringRateDegPerSecond = 0;
         }
 
         let accelerometerCorrectionUsed = false;
@@ -211,39 +226,54 @@ const LeanEstimator =
                     confidence,
                     0.82
                 );
+
+            this.lastMode = "FUSED";
+        }
+        else
+        {
+            this.lastMode = "GYRO";
         }
 
         return {
             leanAngle: this.rollAngleDeg,
             leanRate: rollRateDegPerSecond,
-            confidence
+            steeringRate:
+                this.lastSteeringRateDegPerSecond,
+            confidence,
+            mode:
+                this.lastMode
         };
     },
 
-    solveRollRate(angularVelocityReference)
+    solveAngularRates(angularVelocityReference)
     {
         const forward =
             this.forwardAxis;
 
         if (!this.steeringAxis)
         {
-            return this.dot(
-                angularVelocityReference,
-                forward
-            );
+            return {
+                rollRate:
+                    this.dot(
+                        angularVelocityReference,
+                        forward
+                    ),
+
+                steeringRate: 0
+            };
         }
 
         const steering =
             this.steeringAxis;
 
         /*
-         * Resolve angular velocity as:
+         * Resolve:
          *
          *   omega = rollRate * forwardAxis
-         *         + steerRate * steeringAxis
+         *         + steeringRate * steeringAxis
          *
-         * This dual-axis solution removes steering even when the
-         * steering and roll axes are not perpendicular.
+         * These values are diagnostic in r10. Integration behaviour
+         * is otherwise unchanged from r9.
          */
         const coupling =
             this.dot(
@@ -253,17 +283,6 @@ const LeanEstimator =
 
         const denominator =
             1 - coupling * coupling;
-
-        if (
-            !Number.isFinite(denominator) ||
-            denominator < 0.02
-        )
-        {
-            return this.dot(
-                angularVelocityReference,
-                forward
-            );
-        }
 
         const omegaForward =
             this.dot(
@@ -277,10 +296,35 @@ const LeanEstimator =
                 steering
             );
 
-        return (
-            omegaForward -
-            coupling * omegaSteering
-        ) / denominator;
+        if (
+            !Number.isFinite(denominator) ||
+            denominator < 0.02
+        )
+        {
+            return {
+                rollRate:
+                    omegaForward,
+
+                steeringRate:
+                    omegaSteering
+            };
+        }
+
+        return {
+            rollRate:
+                (
+                    omegaForward -
+                    coupling * omegaSteering
+                ) /
+                denominator,
+
+            steeringRate:
+                (
+                    omegaSteering -
+                    coupling * omegaForward
+                ) /
+                denominator
+        };
     },
 
     accelerometerLeanDeg(acceleration)
@@ -501,6 +545,8 @@ const LeanEstimator =
         this.previousTimestampMs = null;
         this.steeringAxis = null;
         this.uprightGravity = null;
+        this.lastSteeringRateDegPerSecond = 0;
+        this.lastMode = "GYRO";
 
         this.forwardAxis =
         {
