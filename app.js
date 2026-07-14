@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-dev1";
+const APP_VERSION = "0.8.0-r4";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -211,6 +211,7 @@ let calibrationSampleCount = 0;
 
 let steeringCalibrationActive = false;
 let steeringCalibrationSampleCount = 0;
+let steeringGyroSampleCount = 0;
 let steeringCalibrationTimer = null;
 
 let steeringOrientationProfile = [];
@@ -326,8 +327,8 @@ async function startSensors()
                     timestamp: performance.now(),
                     forwardAxis:
                         savedCalibration.forwardVector,
-                    steeringProfile:
-                        savedCalibration.steeringProfile
+                    steeringAxis:
+                        savedCalibration.steeringAxis
                 }
             );
         }
@@ -433,80 +434,91 @@ function handleMotion(event)
     summaryMotionText.textContent = "Working";
 
     storeLatestMotionValues(event);
+
+    const angularVelocityDevice =
+    {
+        x: event.rotationRate?.beta ?? 0,
+        y: event.rotationRate?.gamma ?? 0,
+        z: event.rotationRate?.alpha ?? 0
+    };
+
+    const relativeOrientationMatrix =
+        getCurrentRelativeOrientationMatrix();
+
+    const angularVelocityReference =
+        relativeOrientationMatrix
+            ? multiplyMatrixVector3(
+                relativeOrientationMatrix,
+                angularVelocityDevice
+            )
+            : null;
+
     const imuResult = LeanEstimator.update(
-{
-    timestamp:
-        typeof event.timeStamp === "number"
-            ? event.timeStamp
-            : performance.now(),
+        {
+            timestamp:
+                typeof event.timeStamp === "number"
+                    ? event.timeStamp
+                    : performance.now(),
 
-    accel:
-    {
-        x:
-            event.accelerationIncludingGravity?.x ?? 0,
+            accel:
+            {
+                x:
+                    event.accelerationIncludingGravity?.x ?? 0,
 
-        y:
-            event.accelerationIncludingGravity?.y ?? 0,
+                y:
+                    event.accelerationIncludingGravity?.y ?? 0,
 
-        z:
-            event.accelerationIncludingGravity?.z ?? 0
-    },
+                z:
+                    event.accelerationIncludingGravity?.z ?? 0
+            },
 
-    linearAccel:
-    {
-        x:
-            event.acceleration?.x ?? 0,
+            linearAccel:
+            {
+                x:
+                    event.acceleration?.x ?? 0,
 
-        y:
-            event.acceleration?.y ?? 0,
+                y:
+                    event.acceleration?.y ?? 0,
 
-        z:
-            event.acceleration?.z ?? 0
-    },
+                z:
+                    event.acceleration?.z ?? 0
+            },
 
-    gyro:
-    {
-        x:
-            event.rotationRate?.beta ?? 0,
+            gyroDevice:
+                angularVelocityDevice,
 
-        y:
-            event.rotationRate?.gamma ?? 0,
+            gyroReference:
+                angularVelocityReference,
 
-        z:
-            event.rotationRate?.alpha ?? 0
-    },
+            intervalMs:
+                typeof event.interval === "number"
+                    ? event.interval
+                    : null,
 
-    intervalMs:
-        typeof event.interval === "number"
-            ? event.interval
-            : null,
+            gps:
+            {
+                speedKmh:
+                    latestSpeedKmh,
 
-    gps:
-    {
-        speedKmh:
-            latestSpeedKmh,
+                headingDeg:
+                    latestGpsHeadingDeg,
 
-        headingDeg:
-            latestGpsHeadingDeg,
-
-        accuracyM:
-            latestGpsAccuracyM
-    },
-
-    orientationQuaternion:
-        getCurrentRelativeOrientationQuaternion()
-});
+                accuracyM:
+                    latestGpsAccuracyM
+            }
+        }
+    );
 
     window.latestImuResult = imuResult;
 
     imuLeanText.textContent =
-    imuResult.leanAngle.toFixed(1) + "°";
+        imuResult.leanAngle.toFixed(1) + "°";
 
     imuRateText.textContent =
-    imuResult.leanRate.toFixed(1) + "°/s";
+        imuResult.leanRate.toFixed(1) + "°/s";
 
     imuConfidenceText.textContent =
-    imuResult.confidence.toFixed(2);
+        imuResult.confidence.toFixed(2);
 
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
@@ -520,7 +532,6 @@ function handleMotion(event)
         event.rotationRate
     );
 
-
     updateSamplingInformation(
         event.interval
     );
@@ -533,6 +544,13 @@ function handleMotion(event)
     {
         collectCalibrationSample(
             event.accelerationIncludingGravity
+        );
+    }
+
+    if (steeringCalibrationActive)
+    {
+        collectSteeringCalibrationSample(
+            event.rotationRate
         );
     }
 
@@ -638,7 +656,7 @@ function handleOrientation(event)
     updateLeanAngleFromOrientation();
 }
 
-function getCurrentRelativeOrientationQuaternion()
+function getCurrentRelativeOrientationMatrix()
 {
     if (
         !savedCalibration ||
@@ -669,13 +687,24 @@ function getCurrentRelativeOrientationQuaternion()
         return null;
     }
 
-    const relativeMatrix =
-        multiplyMatrices3(
-            transposeMatrix3(referenceMatrix),
-            currentMatrix
-        );
+    /*
+     * Maps vectors from the phone's current moving coordinate frame
+     * into the fixed upright-calibration coordinate frame.
+     */
+    return multiplyMatrices3(
+        transposeMatrix3(referenceMatrix),
+        currentMatrix
+    );
+}
 
-    return quaternionFromMatrix3(relativeMatrix);
+function getCurrentRelativeOrientationQuaternion()
+{
+    const relativeMatrix =
+        getCurrentRelativeOrientationMatrix();
+
+    return relativeMatrix
+        ? quaternionFromMatrix3(relativeMatrix)
+        : null;
 }
 
 
@@ -891,7 +920,7 @@ function finishCalibration()
             {
                 timestamp: performance.now(),
                 forwardAxis: calibration.forwardVector,
-                steeringProfile: calibration.steeringProfile
+                steeringAxis: calibration.steeringAxis
             }
         );
         filteredSignedLeanAngle = 0;
@@ -2001,6 +2030,7 @@ function startSteeringCalibration()
 
     steeringCalibrationActive = true;
     steeringCalibrationSampleCount = 0;
+    steeringGyroSampleCount = 0;
     steeringOrientationProfile = [];
     lastSteeringProfileSampleMs = 0;
 
@@ -2226,7 +2256,7 @@ function collectSteeringCalibrationSample(rotationRate)
         angularVelocityReference.z *
         angularVelocityReference.z;
 
-    steeringCalibrationSampleCount++;
+    steeringGyroSampleCount++;
 }
 
 
@@ -2249,14 +2279,55 @@ function finishSteeringCalibration()
     if (steeringOrientationProfile.length < 25)
     {
         steeringCalibrationStatusText.textContent =
-            "Not enough steering sweep samples — retry";
+            "Not enough steering profile samples — retry";
         return;
+    }
+
+    if (steeringGyroSampleCount < 10)
+    {
+        steeringCalibrationStatusText.textContent =
+            "Not enough steering gyro motion — retry";
+        return;
+    }
+
+    const steeringAxis =
+        principalAxisFromCovariance(
+            steeringCovariance
+        );
+
+    if (!steeringAxis)
+    {
+        steeringCalibrationStatusText.textContent =
+            "Could not determine steering axis — retry";
+        return;
+    }
+
+    /*
+     * Axis direction is arbitrary. Choose a repeatable sign so saved
+     * calibrations remain stable between runs.
+     */
+    const dominantComponent =
+        Math.abs(steeringAxis.x) >= Math.abs(steeringAxis.y) &&
+        Math.abs(steeringAxis.x) >= Math.abs(steeringAxis.z)
+            ? steeringAxis.x
+            : (
+                Math.abs(steeringAxis.y) >= Math.abs(steeringAxis.z)
+                    ? steeringAxis.y
+                    : steeringAxis.z
+            );
+
+    if (dominantComponent < 0)
+    {
+        steeringAxis.x *= -1;
+        steeringAxis.y *= -1;
+        steeringAxis.z *= -1;
     }
 
     savedCalibration.steeringProfile =
         steeringOrientationProfile;
 
-    savedCalibration.steeringAxis = null;
+    savedCalibration.steeringAxis =
+        steeringAxis;
 
     savedCalibration.steeringSavedAt =
         new Date().toISOString();
@@ -2271,17 +2342,17 @@ function finishSteeringCalibration()
         filteredSignedLeanAngle = 0;
         resetMaximumLean();
 
-        LeanEstimator.setSteeringProfile(
-            savedCalibration.steeringProfile
+        LeanEstimator.setSteeringAxis(
+            savedCalibration.steeringAxis
         );
 
         steeringCalibrationStatusText.textContent =
-            "Steering profile saved — turn bars to verify zero lean";
+            "Steering profile and axis saved — verify lock-to-lock";
     }
     catch (error)
     {
         steeringCalibrationStatusText.textContent =
-            "Steering profile found, but could not be saved";
+            "Steering calibration found, but could not be saved";
     }
 }
 

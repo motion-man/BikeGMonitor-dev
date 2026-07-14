@@ -12,17 +12,11 @@ const LeanEstimator =
         z: 0
     },
 
+    steeringAxis: null,
+
     calibrate(sensorData)
     {
-        const forwardAxis =
-            sensorData?.forwardAxis;
-
-        if (
-            !forwardAxis ||
-            !Number.isFinite(forwardAxis.x) ||
-            !Number.isFinite(forwardAxis.y) ||
-            !Number.isFinite(forwardAxis.z)
-        )
+        if (!this.setForwardAxis(sensorData?.forwardAxis))
         {
             this.reset();
 
@@ -32,37 +26,14 @@ const LeanEstimator =
             };
         }
 
-        const magnitude =
-            Math.sqrt(
-                forwardAxis.x * forwardAxis.x +
-                forwardAxis.y * forwardAxis.y +
-                forwardAxis.z * forwardAxis.z
-            );
-
-        if (
-            !Number.isFinite(magnitude) ||
-            magnitude < 0.000001
-        )
-        {
-            this.reset();
-
-            return {
-                success: false,
-                reason: "Forward axis has zero length"
-            };
-        }
-
-        this.forwardAxis =
-        {
-            x: forwardAxis.x / magnitude,
-            y: forwardAxis.y / magnitude,
-            z: forwardAxis.z / magnitude
-        };
+        this.setSteeringAxis(
+            sensorData?.steeringAxis
+        );
 
         this.rollAngleDeg = 0;
 
         this.previousTimestampMs =
-            typeof sensorData?.timestamp === "number"
+            Number.isFinite(sensorData?.timestamp)
                 ? sensorData.timestamp
                 : null;
 
@@ -71,6 +42,31 @@ const LeanEstimator =
         return {
             success: true
         };
+    },
+
+    setForwardAxis(axis)
+    {
+        const normalized =
+            this.normalizeVector(axis);
+
+        if (!normalized)
+        {
+            return false;
+        }
+
+        this.forwardAxis = normalized;
+        return true;
+    },
+
+    setSteeringAxis(axis)
+    {
+        const normalized =
+            this.normalizeVector(axis);
+
+        this.steeringAxis =
+            normalized;
+
+        return normalized !== null;
     },
 
     update(sensorData)
@@ -85,76 +81,187 @@ const LeanEstimator =
         }
 
         const timestampMs =
-            typeof sensorData?.timestamp === "number"
+            Number.isFinite(sensorData?.timestamp)
                 ? sensorData.timestamp
                 : null;
 
-        const gyro =
-            sensorData?.gyro ?? {};
+        const gyroReference =
+            this.validVector(
+                sensorData?.gyroReference
+            );
 
-        const gyroVector =
+        let rollRateDegPerSecond = 0;
+        let confidence = 0.35;
+
+        if (gyroReference)
         {
-            x:
-                Number.isFinite(gyro.x)
-                    ? gyro.x
-                    : 0,
+            rollRateDegPerSecond =
+                this.solveRollRate(
+                    gyroReference
+                );
 
-            y:
-                Number.isFinite(gyro.y)
-                    ? gyro.y
-                    : 0,
-
-            z:
-                Number.isFinite(gyro.z)
-                    ? gyro.z
-                    : 0
-        };
-
-        /*
-         * Project all three phone gyro axes onto the calibrated
-         * motorcycle-forward axis. Rotation around this axis is roll.
-         */
-        const rollRateDegPerSecond =
-            gyroVector.x * this.forwardAxis.x +
-            gyroVector.y * this.forwardAxis.y +
-            gyroVector.z * this.forwardAxis.z;
-
-        if (
-            timestampMs === null ||
-            this.previousTimestampMs === null
-        )
-        {
-            this.previousTimestampMs = timestampMs;
-
-            return {
-                leanAngle: this.rollAngleDeg,
-                leanRate: rollRateDegPerSecond,
-                confidence: 0.5
-            };
+            confidence =
+                this.steeringAxis
+                    ? 0.70
+                    : 0.50;
         }
 
-        const deltaSeconds =
-            (timestampMs - this.previousTimestampMs) /
-            1000;
+        if (
+            timestampMs !== null &&
+            this.previousTimestampMs !== null
+        )
+        {
+            const deltaSeconds =
+                (timestampMs - this.previousTimestampMs) /
+                1000;
+
+            if (
+                Number.isFinite(deltaSeconds) &&
+                deltaSeconds > 0 &&
+                deltaSeconds <= 0.25
+            )
+            {
+                this.rollAngleDeg +=
+                    rollRateDegPerSecond *
+                    deltaSeconds;
+            }
+        }
 
         this.previousTimestampMs = timestampMs;
 
-        if (
-            Number.isFinite(deltaSeconds) &&
-            deltaSeconds > 0 &&
-            deltaSeconds <= 0.25
-        )
+        if (Math.abs(this.rollAngleDeg) < 0.05)
         {
-            this.rollAngleDeg +=
-                rollRateDegPerSecond *
-                deltaSeconds;
+            this.rollAngleDeg = 0;
         }
 
         return {
             leanAngle: this.rollAngleDeg,
             leanRate: rollRateDegPerSecond,
-            confidence: 0.5
+            confidence
         };
+    },
+
+    solveRollRate(angularVelocityReference)
+    {
+        const forward =
+            this.forwardAxis;
+
+        if (!this.steeringAxis)
+        {
+            return this.dot(
+                angularVelocityReference,
+                forward
+            );
+        }
+
+        const steering =
+            this.steeringAxis;
+
+        /*
+         * Resolve angular velocity as:
+         *
+         *   omega = rollRate * forwardAxis
+         *         + steerRate * steeringAxis
+         *
+         * This dual-axis solution removes steering even when the
+         * steering and roll axes are not perpendicular.
+         */
+        const coupling =
+            this.dot(
+                forward,
+                steering
+            );
+
+        const denominator =
+            1 - coupling * coupling;
+
+        if (
+            !Number.isFinite(denominator) ||
+            denominator < 0.02
+        )
+        {
+            return this.dot(
+                angularVelocityReference,
+                forward
+            );
+        }
+
+        const omegaForward =
+            this.dot(
+                angularVelocityReference,
+                forward
+            );
+
+        const omegaSteering =
+            this.dot(
+                angularVelocityReference,
+                steering
+            );
+
+        return (
+            omegaForward -
+            coupling * omegaSteering
+        ) / denominator;
+    },
+
+    validVector(vector)
+    {
+        if (
+            !vector ||
+            !Number.isFinite(vector.x) ||
+            !Number.isFinite(vector.y) ||
+            !Number.isFinite(vector.z)
+        )
+        {
+            return null;
+        }
+
+        return {
+            x: vector.x,
+            y: vector.y,
+            z: vector.z
+        };
+    },
+
+    normalizeVector(vector)
+    {
+        const valid =
+            this.validVector(vector);
+
+        if (!valid)
+        {
+            return null;
+        }
+
+        const magnitude =
+            Math.sqrt(
+                valid.x * valid.x +
+                valid.y * valid.y +
+                valid.z * valid.z
+            );
+
+        if (
+            !Number.isFinite(magnitude) ||
+            magnitude < 0.000001
+        )
+        {
+            return null;
+        }
+
+        return {
+            x: valid.x / magnitude,
+            y: valid.y / magnitude,
+            z: valid.z / magnitude
+        };
+    },
+
+    dot(a, b)
+    {
+        return (
+            a.x * b.x +
+            a.y * b.y +
+            a.z * b.z
+        );
     },
 
     reset()
@@ -162,6 +269,7 @@ const LeanEstimator =
         this.calibrated = false;
         this.rollAngleDeg = 0;
         this.previousTimestampMs = null;
+        this.steeringAxis = null;
 
         this.forwardAxis =
         {
