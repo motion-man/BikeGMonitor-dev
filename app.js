@@ -2,7 +2,7 @@ const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV3";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.7.0-dev1";
+const APP_VERSION = "0.7.1-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -1954,12 +1954,18 @@ function startSteeringCalibration()
 
 function collectSteeringCalibrationSample(rotationRate)
 {
-    if (!rotationRate)
+    if (
+        !rotationRate ||
+        !savedCalibration ||
+        latestOrientation.alpha === null ||
+        latestOrientation.beta === null ||
+        latestOrientation.gamma === null
+    )
     {
         return;
     }
 
-    const vector =
+    const angularVelocityDevice =
     {
         x:
             typeof rotationRate.beta === "number"
@@ -1979,9 +1985,12 @@ function collectSteeringCalibrationSample(rotationRate)
 
     const magnitude =
         Math.sqrt(
-            vector.x * vector.x +
-            vector.y * vector.y +
-            vector.z * vector.z
+            angularVelocityDevice.x *
+                angularVelocityDevice.x +
+            angularVelocityDevice.y *
+                angularVelocityDevice.y +
+            angularVelocityDevice.z *
+                angularVelocityDevice.z
         );
 
     /*
@@ -1993,15 +2002,90 @@ function collectSteeringCalibrationSample(rotationRate)
         return;
     }
 
-    steeringCovariance.xx += vector.x * vector.x;
-    steeringCovariance.xy += vector.x * vector.y;
-    steeringCovariance.xz += vector.x * vector.z;
-    steeringCovariance.yy += vector.y * vector.y;
-    steeringCovariance.yz += vector.y * vector.z;
-    steeringCovariance.zz += vector.z * vector.z;
+    const currentMatrix =
+        deviceOrientationMatrix(
+            latestOrientation.alpha,
+            latestOrientation.beta,
+            latestOrientation.gamma
+        );
+
+    const referenceMatrix =
+        savedCalibration.orientationMatrix;
+
+    if (
+        !currentMatrix ||
+        !Array.isArray(referenceMatrix) ||
+        referenceMatrix.length !== 9
+    )
+    {
+        return;
+    }
+
+    /*
+     * rotationRate is reported in the phone's CURRENT device frame.
+     * That frame turns with the handlebars. Convert every sample into
+     * the fixed upright calibration frame before accumulating it.
+     *
+     * relativeMatrix maps current-device coordinates into the
+     * calibrated reference-device coordinates.
+     */
+    const relativeMatrix =
+        multiplyMatrices3(
+            transposeMatrix3(referenceMatrix),
+            currentMatrix
+        );
+
+    const angularVelocityReference =
+        multiplyMatrixVector3(
+            relativeMatrix,
+            angularVelocityDevice
+        );
+
+    const referenceMagnitude =
+        Math.sqrt(
+            angularVelocityReference.x *
+                angularVelocityReference.x +
+            angularVelocityReference.y *
+                angularVelocityReference.y +
+            angularVelocityReference.z *
+                angularVelocityReference.z
+        );
+
+    if (
+        !Number.isFinite(referenceMagnitude) ||
+        referenceMagnitude < 5
+    )
+    {
+        return;
+    }
+
+    steeringCovariance.xx +=
+        angularVelocityReference.x *
+        angularVelocityReference.x;
+
+    steeringCovariance.xy +=
+        angularVelocityReference.x *
+        angularVelocityReference.y;
+
+    steeringCovariance.xz +=
+        angularVelocityReference.x *
+        angularVelocityReference.z;
+
+    steeringCovariance.yy +=
+        angularVelocityReference.y *
+        angularVelocityReference.y;
+
+    steeringCovariance.yz +=
+        angularVelocityReference.y *
+        angularVelocityReference.z;
+
+    steeringCovariance.zz +=
+        angularVelocityReference.z *
+        angularVelocityReference.z;
 
     steeringCalibrationSampleCount++;
 }
+
 
 function finishSteeringCalibration()
 {
