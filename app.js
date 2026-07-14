@@ -472,10 +472,7 @@ function handleMotion(event)
             latestGpsAccuracyM
     }
 });
-console.debug(
-    "IMU estimator",
-    imuResult
-);
+
     updateAccelerationIncludingGravity(
         event.accelerationIncludingGravity
     );
@@ -814,6 +811,11 @@ function finishCalibration()
         );
 
         savedCalibration = calibration;
+        LeanEstimator.calibrate(
+            {
+                timestamp: performance.now()
+            }
+        );
         filteredSignedLeanAngle = 0;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
