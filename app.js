@@ -831,11 +831,14 @@ function finishCalibration()
         );
 
         savedCalibration = calibration;
-        LeanEstimator.calibrate(
-            {
-                timestamp: performance.now()
-            }
-        );
+       LeanEstimator.calibrate(
+    {
+        timestamp: performance.now(),
+
+        forwardAxis:
+            calibration.forwardVector
+    }
+);
         filteredSignedLeanAngle = 0;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
