@@ -16,6 +16,7 @@ const LeanEstimator =
     uprightGravity: null,
 
     lastSteeringRateDegPerSecond: 0,
+    lastIntegrationWeight: 1,
     lastMode: "GYRO",
 
     calibrate(sensorData)
@@ -117,6 +118,12 @@ const LeanEstimator =
             this.lastSteeringRateDegPerSecond =
                 rates.steeringRate;
 
+            this.lastIntegrationWeight =
+                this.steeringIntegrationWeight(
+                    rates.rollRate,
+                    rates.steeringRate
+                );
+
             confidence =
                 this.steeringAxis
                     ? 0.70
@@ -125,6 +132,7 @@ const LeanEstimator =
         else
         {
             this.lastSteeringRateDegPerSecond = 0;
+            this.lastIntegrationWeight = 1;
         }
 
         let accelerometerCorrectionUsed = false;
@@ -144,9 +152,13 @@ const LeanEstimator =
                 deltaSeconds <= 0.25
             )
             {
+                const effectiveRollRateDegPerSecond =
+                    rollRateDegPerSecond *
+                    this.lastIntegrationWeight;
+
                 const predictedAngleDeg =
                     this.rollAngleDeg +
-                    rollRateDegPerSecond *
+                    effectiveRollRateDegPerSecond *
                     deltaSeconds;
 
                 const accelerometerLeanDeg =
@@ -226,7 +238,14 @@ const LeanEstimator =
                     confidence,
                     0.82
                 );
+        }
 
+        if (this.lastIntegrationWeight < 0.95)
+        {
+            this.lastMode = "STEER";
+        }
+        else if (accelerometerCorrectionUsed)
+        {
             this.lastMode = "FUSED";
         }
         else
@@ -325,6 +344,70 @@ const LeanEstimator =
                 ) /
                 denominator
         };
+    },
+
+    steeringIntegrationWeight(
+        rollRateDegPerSecond,
+        steeringRateDegPerSecond
+    )
+    {
+        const rollMagnitude =
+            Math.abs(
+                rollRateDegPerSecond
+            );
+
+        const steeringMagnitude =
+            Math.abs(
+                steeringRateDegPerSecond
+            );
+
+        /*
+         * Do not gate tiny sensor noise.
+         */
+        if (steeringMagnitude < 2)
+        {
+            return 1;
+        }
+
+        const totalMotion =
+            rollMagnitude +
+            steeringMagnitude;
+
+        if (totalMotion < 0.000001)
+        {
+            return 1;
+        }
+
+        const steeringShare =
+            steeringMagnitude /
+            totalMotion;
+
+        /*
+         * Roll-dominant motion is integrated normally.
+         * As steering becomes dominant, progressively reduce how much
+         * of the solved roll rate is allowed into the angle integrator.
+         */
+        if (steeringShare <= 0.50)
+        {
+            return 1;
+        }
+
+        if (steeringShare >= 0.75)
+        {
+            return 0.10;
+        }
+
+        const fraction =
+            (
+                steeringShare -
+                0.50
+            ) /
+            0.25;
+
+        return (
+            1 -
+            fraction * 0.90
+        );
     },
 
     accelerometerLeanDeg(acceleration)
@@ -546,6 +629,7 @@ const LeanEstimator =
         this.steeringAxis = null;
         this.uprightGravity = null;
         this.lastSteeringRateDegPerSecond = 0;
+        this.lastIntegrationWeight = 1;
         this.lastMode = "GYRO";
 
         this.forwardAxis =
