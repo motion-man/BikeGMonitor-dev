@@ -1,4 +1,3 @@
-
 import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
@@ -320,6 +319,19 @@ async function startSensors()
         steeringCalibrateButton.disabled =
             !savedCalibration;
 
+        if (savedCalibration)
+        {
+            LeanEstimator.calibrate(
+                {
+                    timestamp: performance.now(),
+                    forwardAxis:
+                        savedCalibration.forwardVector,
+                    steeringProfile:
+                        savedCalibration.steeringProfile
+                }
+            );
+        }
+
         await requestScreenWakeLock();
         startGpsTracking();
     }
@@ -479,7 +491,10 @@ function handleMotion(event)
 
         accuracyM:
             latestGpsAccuracyM
-    }
+    },
+
+    orientationQuaternion:
+        getCurrentRelativeOrientationQuaternion()
 });
 
     window.latestImuResult = imuResult;
@@ -622,6 +637,47 @@ function handleOrientation(event)
 
     updateLeanAngleFromOrientation();
 }
+
+function getCurrentRelativeOrientationQuaternion()
+{
+    if (
+        !savedCalibration ||
+        latestOrientation.alpha === null ||
+        latestOrientation.beta === null ||
+        latestOrientation.gamma === null
+    )
+    {
+        return null;
+    }
+
+    const currentMatrix =
+        deviceOrientationMatrix(
+            latestOrientation.alpha,
+            latestOrientation.beta,
+            latestOrientation.gamma
+        );
+
+    const referenceMatrix =
+        savedCalibration.orientationMatrix;
+
+    if (
+        !currentMatrix ||
+        !Array.isArray(referenceMatrix) ||
+        referenceMatrix.length !== 9
+    )
+    {
+        return null;
+    }
+
+    const relativeMatrix =
+        multiplyMatrices3(
+            transposeMatrix3(referenceMatrix),
+            currentMatrix
+        );
+
+    return quaternionFromMatrix3(relativeMatrix);
+}
+
 
 function updateSamplingInformation(interval)
 {
@@ -831,14 +887,13 @@ function finishCalibration()
         );
 
         savedCalibration = calibration;
-       LeanEstimator.calibrate(
-    {
-        timestamp: performance.now(),
-
-        forwardAxis:
-            calibration.forwardVector
-    }
-);
+        LeanEstimator.calibrate(
+            {
+                timestamp: performance.now(),
+                forwardAxis: calibration.forwardVector,
+                steeringProfile: calibration.steeringProfile
+            }
+        );
         filteredSignedLeanAngle = 0;
         displayCalibration(calibration);
         summaryCalibrationText.textContent = "Saved";
@@ -2215,6 +2270,10 @@ function finishSteeringCalibration()
 
         filteredSignedLeanAngle = 0;
         resetMaximumLean();
+
+        LeanEstimator.setSteeringProfile(
+            savedCalibration.steeringProfile
+        );
 
         steeringCalibrationStatusText.textContent =
             "Steering profile saved — turn bars to verify zero lean";
