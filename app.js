@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r14";
+const APP_VERSION = "0.8.0-r15";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -493,6 +493,30 @@ function handleMotion(event)
         z: event.rotationRate?.alpha ?? 0
     };
 
+    const accelerationDevice =
+    {
+        x:
+            event.accelerationIncludingGravity?.x ?? 0,
+
+        y:
+            event.accelerationIncludingGravity?.y ?? 0,
+
+        z:
+            event.accelerationIncludingGravity?.z ?? 0
+    };
+
+    const linearAccelerationDevice =
+    {
+        x:
+            event.acceleration?.x ?? 0,
+
+        y:
+            event.acceleration?.y ?? 0,
+
+        z:
+            event.acceleration?.z ?? 0
+    };
+
     const relativeOrientationMatrix =
         getCurrentRelativeOrientationMatrix();
 
@@ -504,6 +528,22 @@ function handleMotion(event)
             )
             : null;
 
+    const accelerationReference =
+        relativeOrientationMatrix
+            ? multiplyMatrixVector3(
+                relativeOrientationMatrix,
+                accelerationDevice
+            )
+            : null;
+
+    const linearAccelerationReference =
+        relativeOrientationMatrix
+            ? multiplyMatrixVector3(
+                relativeOrientationMatrix,
+                linearAccelerationDevice
+            )
+            : null;
+
     const imuResult = LeanEstimator.update(
         {
             timestamp:
@@ -512,28 +552,16 @@ function handleMotion(event)
                     : performance.now(),
 
             accel:
-            {
-                x:
-                    event.accelerationIncludingGravity?.x ?? 0,
+                accelerationDevice,
 
-                y:
-                    event.accelerationIncludingGravity?.y ?? 0,
-
-                z:
-                    event.accelerationIncludingGravity?.z ?? 0
-            },
+            accelReference:
+                accelerationReference,
 
             linearAccel:
-            {
-                x:
-                    event.acceleration?.x ?? 0,
+                linearAccelerationDevice,
 
-                y:
-                    event.acceleration?.y ?? 0,
-
-                z:
-                    event.acceleration?.z ?? 0
-            },
+            linearAccelReference:
+                linearAccelerationReference,
 
             gyroDevice:
                 angularVelocityDevice,

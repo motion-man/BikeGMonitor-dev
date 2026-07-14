@@ -242,9 +242,17 @@ const LeanEstimator =
                     effectiveRollRateDegPerSecond *
                     deltaSeconds;
 
+                const accelerationForLean =
+                    this.validVector(
+                        sensorData?.accelReference
+                    ) ??
+                    this.validVector(
+                        sensorData?.accel
+                    );
+
                 const accelerometerLeanDeg =
                     this.accelerometerLeanDeg(
-                        sensorData?.accel
+                        accelerationForLean
                     );
 
                 this.lastAccelerometerLeanDeg =
@@ -255,12 +263,14 @@ const LeanEstimator =
 
                 const totalG =
                     this.vectorMagnitude(
+                        sensorData?.accelReference ??
                         sensorData?.accel
                     ) /
                     9.80665;
 
                 const linearAccelerationG =
                     this.vectorMagnitude(
+                        sensorData?.linearAccelReference ??
                         sensorData?.linearAccel
                     ) /
                     9.80665;
