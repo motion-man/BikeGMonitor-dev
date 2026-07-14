@@ -20,7 +20,7 @@
     <header class="appHeader">
         <h1>Bike G Monitor</h1>
         <div class="branchLabel">
-            Development · v0.6.5
+            Development · v0.7.0
         </div>
     </header>
 
@@ -122,7 +122,11 @@
             </button>
 
             <button id="calibrateButton" disabled>
-                Calibrate
+                Calibrate Upright
+            </button>
+
+            <button id="steeringCalibrateButton" disabled>
+                Calibrate Steering
             </button>
 
             <button id="resetMaxButton">
@@ -135,7 +139,11 @@
         </div>
 
         <div id="calibrationStatus">
-            No calibration saved
+            No upright calibration saved
+        </div>
+
+        <div id="steeringCalibrationStatus">
+            Steering-axis calibration required
         </div>
 
         <div class="wakeLockPanel">
@@ -284,7 +292,7 @@
 
     </main>
 
-    <script src="app.js?v=0.6.5-dev1"></script>
+    <script src="app.js?v=0.7.0-dev1"></script>
 
 </body>
 </html>

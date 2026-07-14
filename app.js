@@ -1,15 +1,21 @@
 const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
-const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV2";
+const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV3";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.6.5-dev1";
+const APP_VERSION = "0.7.0-dev1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
 
+const steeringCalibrateButton =
+    document.getElementById("steeringCalibrateButton");
+
 const statusText = document.getElementById("status");
 const calibrationStatusText =
     document.getElementById("calibrationStatus");
+
+const steeringCalibrationStatusText =
+    document.getElementById("steeringCalibrationStatus");
 
 const xText = document.getElementById("x");
 const yText = document.getElementById("y");
@@ -194,6 +200,20 @@ let latestOrientation =
 let calibrationActive = false;
 let calibrationSampleCount = 0;
 
+let steeringCalibrationActive = false;
+let steeringCalibrationSampleCount = 0;
+let steeringCalibrationTimer = null;
+
+let steeringCovariance =
+{
+    xx: 0,
+    xy: 0,
+    xz: 0,
+    yy: 0,
+    yz: 0,
+    zz: 0
+};
+
 let calibrationTotals =
 {
     x: 0,
@@ -208,6 +228,10 @@ let calibrationTotals =
 
 startButton.addEventListener("click", startSensors);
 calibrateButton.addEventListener("click", startCalibration);
+steeringCalibrateButton.addEventListener(
+    "click",
+    startSteeringCalibration
+);
 resetMaxButton.addEventListener("click", resetMaximumLean);
 startRideButton.addEventListener("click", startRideRecording);
 stopRideButton.addEventListener("click", stopRideRecording);
@@ -279,6 +303,9 @@ async function startSensors()
         startButton.disabled = true;
 
         calibrateButton.disabled = false;
+
+        steeringCalibrateButton.disabled =
+            !savedCalibration;
 
         await requestScreenWakeLock();
         startGpsTracking();
@@ -392,6 +419,13 @@ function handleMotion(event)
     updateRotationRate(
         event.rotationRate
     );
+
+    if (steeringCalibrationActive)
+    {
+        collectSteeringCalibrationSample(
+            event.rotationRate
+        );
+    }
 
     updateSamplingInformation(
         event.interval
@@ -633,6 +667,7 @@ function finishCalibration()
         orientationMatrix: null,
         orientationUpVector: null,
         forwardVector: null,
+        steeringAxis: null,
         savedAt: new Date().toISOString()
     };
 
@@ -716,8 +751,13 @@ function finishCalibration()
         summaryCalibrationText.textContent = "Saved";
         resetMaximumLean();
 
+        steeringCalibrateButton.disabled = false;
+
         calibrationStatusText.textContent =
-            "Orientation calibration complete and saved";
+            "Upright calibration saved";
+
+        steeringCalibrationStatusText.textContent =
+            "Next: keep bike upright and calibrate steering";
     }
     catch (error)
     {
@@ -767,7 +807,14 @@ function loadSavedCalibration()
         summaryCalibrationText.textContent = "Saved";
 
         calibrationStatusText.textContent =
-            "Saved calibration loaded";
+            "Saved upright calibration loaded";
+
+        steeringCalibrateButton.disabled = false;
+
+        steeringCalibrationStatusText.textContent =
+            calibration.steeringAxis
+                ? "Saved steering-axis calibration loaded"
+                : "Steering-axis calibration required";
     }
     catch (error)
     {
@@ -804,7 +851,16 @@ function updateLeanAngleFromOrientation()
         return;
     }
 
+    if (!savedCalibration.steeringAxis)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent =
+            "Calibrate steering axis";
+        return;
+    }
+
     if (
+        latestOrientation.alpha === null ||
         latestOrientation.beta === null ||
         latestOrientation.gamma === null
     )
@@ -814,16 +870,67 @@ function updateLeanAngleFromOrientation()
         return;
     }
 
-    /*
-     * Derive world vertical in the phone's own coordinate frame.
-     *
-     * Alpha/heading is deliberately excluded. Turning the handlebars
-     * changes yaw, but should not be interpreted as motorcycle lean.
-     */
-    const currentUp =
-        worldUpInDeviceCoordinates(
+    const currentMatrix =
+        deviceOrientationMatrix(
+            latestOrientation.alpha,
             latestOrientation.beta,
             latestOrientation.gamma
+        );
+
+    const referenceMatrix =
+        savedCalibration.orientationMatrix;
+
+    if (
+        !currentMatrix ||
+        !Array.isArray(referenceMatrix) ||
+        referenceMatrix.length !== 9
+    )
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent = "Invalid orientation data";
+        return;
+    }
+
+    /*
+     * Relative phone rotation since upright calibration.
+     */
+    const relativeMatrix =
+        multiplyMatrices3(
+            transposeMatrix3(referenceMatrix),
+            currentMatrix
+        );
+
+    const relativeQuaternion =
+        quaternionFromMatrix3(relativeMatrix);
+
+    const steeringAxis =
+        normalizeObject(
+            savedCalibration.steeringAxis
+        );
+
+    if (!relativeQuaternion || !steeringAxis)
+    {
+        leanAngleText.textContent = "N/A";
+        leanStatusText.textContent =
+            "Invalid steering calibration";
+        return;
+    }
+
+    /*
+     * Swing-twist decomposition:
+     * - twist = handlebar rotation around the measured steering axis
+     * - swing = the remaining motorcycle/body attitude
+     */
+    const steeringTwist =
+        extractQuaternionTwist(
+            relativeQuaternion,
+            steeringAxis
+        );
+
+    const bodySwing =
+        multiplyQuaternions(
+            relativeQuaternion,
+            conjugateQuaternion(steeringTwist)
         );
 
     const referenceUp =
@@ -836,12 +943,20 @@ function updateLeanAngleFromOrientation()
             savedCalibration.forwardVector
         );
 
-    if (!currentUp || !referenceUp || !forward)
+    if (!referenceUp || !forward)
     {
         leanAngleText.textContent = "N/A";
         leanStatusText.textContent = "Recalibrate upright";
         return;
     }
+
+    const correctedUp =
+        normalizeObject(
+            rotateVectorByQuaternion(
+                referenceUp,
+                bodySwing
+            )
+        );
 
     const referenceRollPlane =
         normalizeObject(
@@ -854,18 +969,18 @@ function updateLeanAngleFromOrientation()
             )
         );
 
-    const currentRollPlane =
+    const correctedRollPlane =
         normalizeObject(
             subtractVector(
-                currentUp,
+                correctedUp,
                 scaleVector(
                     forward,
-                    dotProduct(currentUp, forward)
+                    dotProduct(correctedUp, forward)
                 )
             )
         );
 
-    if (!referenceRollPlane || !currentRollPlane)
+    if (!referenceRollPlane || !correctedRollPlane)
     {
         leanAngleText.textContent = "N/A";
         leanStatusText.textContent = "Unable to isolate lean";
@@ -875,20 +990,16 @@ function updateLeanAngleFromOrientation()
     const cross =
         crossProduct(
             referenceRollPlane,
-            currentRollPlane
+            correctedRollPlane
         );
 
-    /*
-     * Sign is inverted to retain the LEFT/RIGHT convention verified
-     * in v0.6.3 and v0.6.4.
-     */
     const rawSignedAngle =
         -Math.atan2(
             dotProduct(forward, cross),
             clamp(
                 dotProduct(
                     referenceRollPlane,
-                    currentRollPlane
+                    correctedRollPlane
                 ),
                 -1,
                 1
@@ -901,11 +1012,7 @@ function updateLeanAngleFromOrientation()
             filteredSignedLeanAngle
         );
 
-    /*
-     * Reject only sudden unrealistic jumps. Normal lean updates are
-     * continuous and do not depend on speed or acceleration.
-     */
-    if (Math.abs(angleDifference) <= 18)
+    if (Math.abs(angleDifference) <= 20)
     {
         const smoothing = 0.38;
 
@@ -950,8 +1057,9 @@ function updateLeanAngleFromOrientation()
     }
 
     leanStatusText.textContent =
-        "Yaw-independent orientation lean";
+        "Steering-compensated IMU lean";
 }
+
 
 
 
@@ -1803,6 +1911,445 @@ function resetMaximumLean()
     maxBrakeGText.textContent = "0.00 G";
     maxSpeedText.textContent = "0 km/h";
 }
+
+function startSteeringCalibration()
+{
+    if (
+        !sensorsStarted ||
+        !savedCalibration ||
+        steeringCalibrationActive
+    )
+    {
+        return;
+    }
+
+    steeringCalibrationActive = true;
+    steeringCalibrationSampleCount = 0;
+
+    steeringCovariance =
+    {
+        xx: 0,
+        xy: 0,
+        xz: 0,
+        yy: 0,
+        yz: 0,
+        zz: 0
+    };
+
+    steeringCalibrateButton.disabled = true;
+    calibrateButton.disabled = true;
+
+    steeringCalibrateButton.textContent =
+        "Sweeping...";
+
+    steeringCalibrationStatusText.textContent =
+        "Keep bike upright; sweep handlebars fully left/right repeatedly";
+
+    steeringCalibrationTimer =
+        window.setTimeout(
+            finishSteeringCalibration,
+            6000
+        );
+}
+
+function collectSteeringCalibrationSample(rotationRate)
+{
+    if (!rotationRate)
+    {
+        return;
+    }
+
+    const vector =
+    {
+        x:
+            typeof rotationRate.beta === "number"
+                ? rotationRate.beta
+                : 0,
+
+        y:
+            typeof rotationRate.gamma === "number"
+                ? rotationRate.gamma
+                : 0,
+
+        z:
+            typeof rotationRate.alpha === "number"
+                ? rotationRate.alpha
+                : 0
+    };
+
+    const magnitude =
+        Math.sqrt(
+            vector.x * vector.x +
+            vector.y * vector.y +
+            vector.z * vector.z
+        );
+
+    /*
+     * Ignore stationary gyro noise. Only deliberate steering motion
+     * contributes to the measured steering axis.
+     */
+    if (!Number.isFinite(magnitude) || magnitude < 5)
+    {
+        return;
+    }
+
+    steeringCovariance.xx += vector.x * vector.x;
+    steeringCovariance.xy += vector.x * vector.y;
+    steeringCovariance.xz += vector.x * vector.z;
+    steeringCovariance.yy += vector.y * vector.y;
+    steeringCovariance.yz += vector.y * vector.z;
+    steeringCovariance.zz += vector.z * vector.z;
+
+    steeringCalibrationSampleCount++;
+}
+
+function finishSteeringCalibration()
+{
+    steeringCalibrationActive = false;
+
+    if (steeringCalibrationTimer !== null)
+    {
+        clearTimeout(steeringCalibrationTimer);
+        steeringCalibrationTimer = null;
+    }
+
+    steeringCalibrateButton.disabled = false;
+    calibrateButton.disabled = false;
+
+    steeringCalibrateButton.textContent =
+        "Calibrate Steering";
+
+    if (steeringCalibrationSampleCount < 30)
+    {
+        steeringCalibrationStatusText.textContent =
+            "Not enough steering movement — retry";
+        return;
+    }
+
+    const steeringAxis =
+        principalAxisFromCovariance(
+            steeringCovariance
+        );
+
+    if (!steeringAxis)
+    {
+        steeringCalibrationStatusText.textContent =
+            "Could not determine steering axis";
+        return;
+    }
+
+    savedCalibration.steeringAxis =
+        steeringAxis;
+
+    savedCalibration.steeringSavedAt =
+        new Date().toISOString();
+
+    try
+    {
+        localStorage.setItem(
+            CALIBRATION_STORAGE_KEY,
+            JSON.stringify(savedCalibration)
+        );
+
+        filteredSignedLeanAngle = 0;
+        resetMaximumLean();
+
+        steeringCalibrationStatusText.textContent =
+            "Steering axis saved — turn bars to verify zero lean";
+    }
+    catch (error)
+    {
+        steeringCalibrationStatusText.textContent =
+            "Steering axis found, but could not be saved";
+    }
+}
+
+function principalAxisFromCovariance(covariance)
+{
+    const matrix =
+    [
+        covariance.xx,
+        covariance.xy,
+        covariance.xz,
+
+        covariance.xy,
+        covariance.yy,
+        covariance.yz,
+
+        covariance.xz,
+        covariance.yz,
+        covariance.zz
+    ];
+
+    let vector =
+        normalizeObject(
+            {
+                x: 0.2,
+                y: 0.8,
+                z: 0.5
+            }
+        );
+
+    for (let iteration = 0; iteration < 20; iteration++)
+    {
+        vector =
+            normalizeObject(
+                multiplyMatrixVector3(
+                    matrix,
+                    vector
+                )
+            );
+
+        if (!vector)
+        {
+            return null;
+        }
+    }
+
+    return vector;
+}
+
+function quaternionFromMatrix3(matrix)
+{
+    const trace =
+        matrix[0] +
+        matrix[4] +
+        matrix[8];
+
+    let quaternion;
+
+    if (trace > 0)
+    {
+        const scale =
+            Math.sqrt(trace + 1) * 2;
+
+        quaternion =
+        {
+            w: 0.25 * scale,
+            x: (matrix[7] - matrix[5]) / scale,
+            y: (matrix[2] - matrix[6]) / scale,
+            z: (matrix[3] - matrix[1]) / scale
+        };
+    }
+    else if (
+        matrix[0] > matrix[4] &&
+        matrix[0] > matrix[8]
+    )
+    {
+        const scale =
+            Math.sqrt(
+                1 +
+                matrix[0] -
+                matrix[4] -
+                matrix[8]
+            ) * 2;
+
+        quaternion =
+        {
+            w: (matrix[7] - matrix[5]) / scale,
+            x: 0.25 * scale,
+            y: (matrix[1] + matrix[3]) / scale,
+            z: (matrix[2] + matrix[6]) / scale
+        };
+    }
+    else if (matrix[4] > matrix[8])
+    {
+        const scale =
+            Math.sqrt(
+                1 +
+                matrix[4] -
+                matrix[0] -
+                matrix[8]
+            ) * 2;
+
+        quaternion =
+        {
+            w: (matrix[2] - matrix[6]) / scale,
+            x: (matrix[1] + matrix[3]) / scale,
+            y: 0.25 * scale,
+            z: (matrix[5] + matrix[7]) / scale
+        };
+    }
+    else
+    {
+        const scale =
+            Math.sqrt(
+                1 +
+                matrix[8] -
+                matrix[0] -
+                matrix[4]
+            ) * 2;
+
+        quaternion =
+        {
+            w: (matrix[3] - matrix[1]) / scale,
+            x: (matrix[2] + matrix[6]) / scale,
+            y: (matrix[5] + matrix[7]) / scale,
+            z: 0.25 * scale
+        };
+    }
+
+    return normalizeQuaternion(quaternion);
+}
+
+function normalizeQuaternion(quaternion)
+{
+    const magnitude =
+        Math.sqrt(
+            quaternion.w * quaternion.w +
+            quaternion.x * quaternion.x +
+            quaternion.y * quaternion.y +
+            quaternion.z * quaternion.z
+        );
+
+    if (!Number.isFinite(magnitude) || magnitude < 0.000001)
+    {
+        return null;
+    }
+
+    return {
+        w: quaternion.w / magnitude,
+        x: quaternion.x / magnitude,
+        y: quaternion.y / magnitude,
+        z: quaternion.z / magnitude
+    };
+}
+
+function extractQuaternionTwist(
+    quaternion,
+    axis
+)
+{
+    const projection =
+        dotProduct(
+            {
+                x: quaternion.x,
+                y: quaternion.y,
+                z: quaternion.z
+            },
+            axis
+        );
+
+    const twist =
+        normalizeQuaternion(
+            {
+                w: quaternion.w,
+                x: axis.x * projection,
+                y: axis.y * projection,
+                z: axis.z * projection
+            }
+        );
+
+    return (
+        twist ||
+        {
+            w: 1,
+            x: 0,
+            y: 0,
+            z: 0
+        }
+    );
+}
+
+function conjugateQuaternion(quaternion)
+{
+    return {
+        w: quaternion.w,
+        x: -quaternion.x,
+        y: -quaternion.y,
+        z: -quaternion.z
+    };
+}
+
+function multiplyQuaternions(a, b)
+{
+    return normalizeQuaternion(
+        {
+            w:
+                a.w * b.w -
+                a.x * b.x -
+                a.y * b.y -
+                a.z * b.z,
+
+            x:
+                a.w * b.x +
+                a.x * b.w +
+                a.y * b.z -
+                a.z * b.y,
+
+            y:
+                a.w * b.y -
+                a.x * b.z +
+                a.y * b.w +
+                a.z * b.x,
+
+            z:
+                a.w * b.z +
+                a.x * b.y -
+                a.y * b.x +
+                a.z * b.w
+        }
+    );
+}
+
+function rotateVectorByQuaternion(
+    vector,
+    quaternion
+)
+{
+    const vectorQuaternion =
+    {
+        w: 0,
+        x: vector.x,
+        y: vector.y,
+        z: vector.z
+    };
+
+    const rotated =
+        multiplyQuaternionRaw(
+            multiplyQuaternionRaw(
+                quaternion,
+                vectorQuaternion
+            ),
+            conjugateQuaternion(quaternion)
+        );
+
+    return {
+        x: rotated.x,
+        y: rotated.y,
+        z: rotated.z
+    };
+}
+
+function multiplyQuaternionRaw(a, b)
+{
+    return {
+        w:
+            a.w * b.w -
+            a.x * b.x -
+            a.y * b.y -
+            a.z * b.z,
+
+        x:
+            a.w * b.x +
+            a.x * b.w +
+            a.y * b.z -
+            a.z * b.y,
+
+        y:
+            a.w * b.y -
+            a.x * b.z +
+            a.y * b.w +
+            a.z * b.x,
+
+        z:
+            a.w * b.z +
+            a.x * b.y -
+            a.y * b.x +
+            a.z * b.w
+    };
+}
+
 
 function worldUpInDeviceCoordinates(beta, gamma)
 {

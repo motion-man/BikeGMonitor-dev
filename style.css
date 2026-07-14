@@ -384,3 +384,13 @@ h2
     font-size: 15px;
     color: #aab4c0;
 }
+
+
+#steeringCalibrationStatus
+{
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 10px;
+    background: #15191e;
+    color: #aab4c0;
+}
