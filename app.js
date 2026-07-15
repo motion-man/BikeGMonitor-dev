@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r16";
+const APP_VERSION = "0.8.0-r17";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -188,6 +188,18 @@ const maxSpeedText =
 const gpsStatusText =
     document.getElementById("gpsStatus");
 
+const diagnosticButton =
+    document.getElementById("diagnosticButton");
+
+const diagnosticInstructionText =
+    document.getElementById("diagnosticInstruction");
+
+const diagnosticCountdownText =
+    document.getElementById("diagnosticCountdown");
+
+const diagnosticProgressText =
+    document.getElementById("diagnosticProgress");
+
 let sensorsStarted = false;
 let savedCalibration = null;
 let maximumLeanAngle = 0;
@@ -284,6 +296,33 @@ let calibrationTotals =
     orientationSamples: 0
 };
 
+const DIAGNOSTIC_PHASE_DURATION_MS = 4000;
+
+const DIAGNOSTIC_PHASES =
+[
+    "UPRIGHT — BARS CENTRED",
+    "UPRIGHT — BARS FULL LEFT",
+    "UPRIGHT — BARS FULL RIGHT",
+    "UPRIGHT — BARS CENTRED",
+    "LEAN LEFT — BARS CENTRED",
+    "LEAN LEFT — BARS FULL LEFT",
+    "LEAN LEFT — BARS FULL RIGHT",
+    "RETURN UPRIGHT — BARS CENTRED",
+    "LEAN RIGHT — BARS CENTRED",
+    "LEAN RIGHT — BARS FULL LEFT",
+    "LEAN RIGHT — BARS FULL RIGHT",
+    "RETURN UPRIGHT — BARS CENTRED"
+];
+
+let diagnosticRunning = false;
+let diagnosticSamples = [];
+let diagnosticStartPerformanceMs = 0;
+let diagnosticStartEpochMs = 0;
+let diagnosticPhaseIndex = 0;
+let diagnosticTimerId = null;
+let latestImuResult = null;
+
+
 startButton.addEventListener("click", startSensors);
 calibrateButton.addEventListener("click", startCalibration);
 steeringCalibrateButton.addEventListener(
@@ -293,6 +332,10 @@ steeringCalibrateButton.addEventListener(
 resetMaxButton.addEventListener("click", resetMaximumLean);
 startRideButton.addEventListener("click", startRideRecording);
 stopRideButton.addEventListener("click", stopRideRecording);
+diagnosticButton.addEventListener(
+    "click",
+    handleDiagnosticButton
+);
 
 loadSavedCalibration();
 summaryDeviceText.textContent = detectDevice();
@@ -589,6 +632,19 @@ function handleMotion(event)
     );
 
     window.latestImuResult = imuResult;
+    latestImuResult = imuResult;
+
+    if (diagnosticRunning)
+    {
+        recordDiagnosticSample(
+            event,
+            imuResult,
+            accelerationDevice,
+            linearAccelerationDevice,
+            angularVelocityDevice,
+            angularVelocityReference
+        );
+    }
 
     imuLeanText.textContent =
         imuResult.leanAngle.toFixed(1) + "°";
@@ -1301,6 +1357,550 @@ function updateLeanAngleFromOrientation()
 
 
 
+
+
+function handleDiagnosticButton()
+{
+    if (diagnosticRunning)
+    {
+        cancelImuDiagnostic();
+        return;
+    }
+
+    startImuDiagnostic();
+}
+
+function startImuDiagnostic()
+{
+    if (!sensorsStarted)
+    {
+        diagnosticInstructionText.textContent =
+            "Start sensors first";
+        return;
+    }
+
+    if (
+        !savedCalibration ||
+        !Array.isArray(savedCalibration.steeringProfile) ||
+        savedCalibration.steeringProfile.length < 10 ||
+        !savedCalibration.steeringAxis
+    )
+    {
+        diagnosticInstructionText.textContent =
+            "Complete upright and steering calibration first";
+        return;
+    }
+
+    if (!latestImuResult)
+    {
+        diagnosticInstructionText.textContent =
+            "Waiting for live IMU data";
+        return;
+    }
+
+    diagnosticRunning = true;
+    diagnosticSamples = [];
+    diagnosticStartPerformanceMs = performance.now();
+    diagnosticStartEpochMs = Date.now();
+    diagnosticPhaseIndex = 0;
+
+    diagnosticButton.textContent =
+        "Cancel Diagnostic";
+
+    startRideButton.disabled = true;
+    calibrateButton.disabled = true;
+    steeringCalibrateButton.disabled = true;
+
+    updateDiagnosticGuide();
+
+    diagnosticTimerId =
+        window.setInterval(
+            updateDiagnosticGuide,
+            100
+        );
+}
+
+function updateDiagnosticGuide()
+{
+    if (!diagnosticRunning)
+    {
+        return;
+    }
+
+    const elapsedMs =
+        performance.now() -
+        diagnosticStartPerformanceMs;
+
+    const totalDurationMs =
+        DIAGNOSTIC_PHASES.length *
+        DIAGNOSTIC_PHASE_DURATION_MS;
+
+    if (elapsedMs >= totalDurationMs)
+    {
+        finishImuDiagnostic();
+        return;
+    }
+
+    diagnosticPhaseIndex =
+        Math.min(
+            DIAGNOSTIC_PHASES.length - 1,
+            Math.floor(
+                elapsedMs /
+                DIAGNOSTIC_PHASE_DURATION_MS
+            )
+        );
+
+    const phaseElapsedMs =
+        elapsedMs -
+        diagnosticPhaseIndex *
+        DIAGNOSTIC_PHASE_DURATION_MS;
+
+    const remainingSeconds =
+        Math.max(
+            1,
+            Math.ceil(
+                (
+                    DIAGNOSTIC_PHASE_DURATION_MS -
+                    phaseElapsedMs
+                ) /
+                1000
+            )
+        );
+
+    diagnosticInstructionText.textContent =
+        DIAGNOSTIC_PHASES[
+            diagnosticPhaseIndex
+        ];
+
+    diagnosticCountdownText.textContent =
+        String(remainingSeconds);
+
+    diagnosticProgressText.textContent =
+        "Step " +
+        String(diagnosticPhaseIndex + 1) +
+        " of " +
+        String(DIAGNOSTIC_PHASES.length) +
+        " — recording " +
+        String(diagnosticSamples.length) +
+        " samples";
+}
+
+function recordDiagnosticSample(
+    event,
+    imuResult,
+    accelerationDevice,
+    linearAccelerationDevice,
+    angularVelocityDevice,
+    angularVelocityReference
+)
+{
+    const elapsedMs =
+        performance.now() -
+        diagnosticStartPerformanceMs;
+
+    diagnosticSamples.push(
+        {
+            timestamp_iso:
+                new Date(
+                    diagnosticStartEpochMs +
+                    elapsedMs
+                ).toISOString(),
+
+            elapsed_ms:
+                Number(elapsedMs.toFixed(3)),
+
+            phase_index:
+                diagnosticPhaseIndex + 1,
+
+            phase:
+                DIAGNOSTIC_PHASES[
+                    diagnosticPhaseIndex
+                ],
+
+            current_lean_signed_deg:
+                Number(
+                    filteredSignedLeanAngle.toFixed(4)
+                ),
+
+            current_lean_abs_deg:
+                Number(
+                    Math.abs(
+                        filteredSignedLeanAngle
+                    ).toFixed(4)
+                ),
+
+            current_lean_direction:
+                latestLeanDirection,
+
+            imu_lean_deg:
+                safeDiagnosticNumber(
+                    imuResult.leanAngle
+                ),
+
+            imu_rate_dps:
+                safeDiagnosticNumber(
+                    imuResult.leanRate
+                ),
+
+            steering_rate_dps:
+                safeDiagnosticNumber(
+                    imuResult.steeringRate
+                ),
+
+            raw_roll_rate_dps:
+                safeDiagnosticNumber(
+                    imuResult.rawRollRate
+                ),
+
+            raw_steering_rate_dps:
+                safeDiagnosticNumber(
+                    imuResult.rawSteeringRate
+                ),
+
+            omega_forward_dps:
+                safeDiagnosticNumber(
+                    imuResult.omegaForward
+                ),
+
+            omega_steering_dps:
+                safeDiagnosticNumber(
+                    imuResult.omegaSteering
+                ),
+
+            accel_roll_deg:
+                safeDiagnosticNumber(
+                    imuResult.accelerometerLean
+                ),
+
+            gyro_predicted_deg:
+                safeDiagnosticNumber(
+                    imuResult.gyroPredictedAngle
+                ),
+
+            fused_output_deg:
+                safeDiagnosticNumber(
+                    imuResult.fusedAngle
+                ),
+
+            confidence:
+                safeDiagnosticNumber(
+                    imuResult.confidence
+                ),
+
+            mode:
+                imuResult.mode ?? "",
+
+            device_gyro_x_dps:
+                safeDiagnosticNumber(
+                    angularVelocityDevice?.x
+                ),
+
+            device_gyro_y_dps:
+                safeDiagnosticNumber(
+                    angularVelocityDevice?.y
+                ),
+
+            device_gyro_z_dps:
+                safeDiagnosticNumber(
+                    angularVelocityDevice?.z
+                ),
+
+            reference_gyro_x_dps:
+                safeDiagnosticNumber(
+                    angularVelocityReference?.x
+                ),
+
+            reference_gyro_y_dps:
+                safeDiagnosticNumber(
+                    angularVelocityReference?.y
+                ),
+
+            reference_gyro_z_dps:
+                safeDiagnosticNumber(
+                    angularVelocityReference?.z
+                ),
+
+            accel_device_x_ms2:
+                safeDiagnosticNumber(
+                    accelerationDevice?.x
+                ),
+
+            accel_device_y_ms2:
+                safeDiagnosticNumber(
+                    accelerationDevice?.y
+                ),
+
+            accel_device_z_ms2:
+                safeDiagnosticNumber(
+                    accelerationDevice?.z
+                ),
+
+            linear_accel_x_ms2:
+                safeDiagnosticNumber(
+                    linearAccelerationDevice?.x
+                ),
+
+            linear_accel_y_ms2:
+                safeDiagnosticNumber(
+                    linearAccelerationDevice?.y
+                ),
+
+            linear_accel_z_ms2:
+                safeDiagnosticNumber(
+                    linearAccelerationDevice?.z
+                ),
+
+            orientation_alpha_deg:
+                safeDiagnosticNumber(
+                    latestOrientation.alpha
+                ),
+
+            orientation_beta_deg:
+                safeDiagnosticNumber(
+                    latestOrientation.beta
+                ),
+
+            orientation_gamma_deg:
+                safeDiagnosticNumber(
+                    latestOrientation.gamma
+                ),
+
+            sensor_interval_ms:
+                safeDiagnosticNumber(
+                    event.interval
+                ),
+
+            speed_kmh:
+                safeDiagnosticNumber(
+                    latestSpeedKmh
+                ),
+
+            gps_accuracy_m:
+                safeDiagnosticNumber(
+                    latestGpsAccuracyM
+                )
+        }
+    );
+}
+
+function finishImuDiagnostic()
+{
+    if (!diagnosticRunning)
+    {
+        return;
+    }
+
+    diagnosticRunning = false;
+
+    if (diagnosticTimerId !== null)
+    {
+        clearInterval(diagnosticTimerId);
+        diagnosticTimerId = null;
+    }
+
+    diagnosticButton.textContent =
+        "Run IMU Diagnostic";
+
+    startRideButton.disabled = false;
+    calibrateButton.disabled = false;
+    steeringCalibrateButton.disabled = false;
+
+    diagnosticInstructionText.textContent =
+        "Diagnostic complete — downloading CSV";
+
+    diagnosticCountdownText.textContent =
+        "DONE";
+
+    diagnosticProgressText.textContent =
+        String(diagnosticSamples.length) +
+        " samples recorded";
+
+    downloadImuDiagnosticCsv();
+}
+
+function cancelImuDiagnostic()
+{
+    diagnosticRunning = false;
+
+    if (diagnosticTimerId !== null)
+    {
+        clearInterval(diagnosticTimerId);
+        diagnosticTimerId = null;
+    }
+
+    diagnosticButton.textContent =
+        "Run IMU Diagnostic";
+
+    startRideButton.disabled = false;
+    calibrateButton.disabled = false;
+    steeringCalibrateButton.disabled = false;
+
+    diagnosticInstructionText.textContent =
+        "Diagnostic cancelled";
+
+    diagnosticCountdownText.textContent =
+        "--";
+
+    diagnosticProgressText.textContent =
+        String(diagnosticSamples.length) +
+        " samples discarded";
+
+    diagnosticSamples = [];
+}
+
+function downloadImuDiagnosticCsv()
+{
+    if (diagnosticSamples.length === 0)
+    {
+        diagnosticInstructionText.textContent =
+            "No diagnostic samples recorded";
+        return;
+    }
+
+    const columns =
+        Object.keys(
+            diagnosticSamples[0]
+        );
+
+    const rows =
+    [
+        [
+            "metadata",
+            "app_version",
+            APP_VERSION
+        ].map(csvValue).join(","),
+
+        [
+            "metadata",
+            "device",
+            detectDevice()
+        ].map(csvValue).join(","),
+
+        [
+            "metadata",
+            "sample_count",
+            diagnosticSamples.length
+        ].map(csvValue).join(","),
+
+        [
+            "metadata",
+            "phase_duration_ms",
+            DIAGNOSTIC_PHASE_DURATION_MS
+        ].map(csvValue).join(","),
+
+        "",
+
+        columns.join(",")
+    ];
+
+    for (const sample of diagnosticSamples)
+    {
+        rows.push(
+            columns
+                .map(
+                    column =>
+                        csvValue(
+                            sample[column]
+                        )
+                )
+                .join(",")
+        );
+    }
+
+    const csvText =
+        rows.join("\r\n");
+
+    const blob =
+        new Blob(
+            [csvText],
+            {
+                type:
+                    "text/csv;charset=utf-8"
+            }
+        );
+
+    const url =
+        URL.createObjectURL(blob);
+
+    const link =
+        document.createElement("a");
+
+    link.href = url;
+    link.download =
+        buildImuDiagnosticFilename();
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(
+        function ()
+        {
+            URL.revokeObjectURL(url);
+        },
+        1000
+    );
+}
+
+function buildImuDiagnosticFilename()
+{
+    const date =
+        new Date(
+            diagnosticStartEpochMs
+        );
+
+    const year =
+        String(date.getFullYear());
+
+    const month =
+        String(
+            date.getMonth() + 1
+        ).padStart(2, "0");
+
+    const day =
+        String(
+            date.getDate()
+        ).padStart(2, "0");
+
+    const hours =
+        String(
+            date.getHours()
+        ).padStart(2, "0");
+
+    const minutes =
+        String(
+            date.getMinutes()
+        ).padStart(2, "0");
+
+    const seconds =
+        String(
+            date.getSeconds()
+        ).padStart(2, "0");
+
+    return (
+        "BikeG_IMU_Diagnostic_" +
+        APP_VERSION +
+        "_" +
+        year +
+        month +
+        day +
+        "_" +
+        hours +
+        minutes +
+        seconds +
+        ".csv"
+    );
+}
+
+function safeDiagnosticNumber(value)
+{
+    return (
+        typeof value === "number" &&
+        Number.isFinite(value)
+    )
+        ? Number(value.toFixed(6))
+        : "";
+}
 
 
 function startGpsTracking()

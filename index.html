@@ -20,7 +20,7 @@
     <header class="appHeader">
         <h1>Bike G Monitor</h1>
         <div class="branchLabel">
-            Development · v0.8.0-r16
+            Development · v0.8.0-r17
         </div>
     </header>
 
@@ -196,7 +196,27 @@
             <button id="resetMaxButton">
                 Reset Peaks
             </button>
+
+            <button id="diagnosticButton">
+                Run IMU Diagnostic
+            </button>
         </div>
+
+        <section class="rideRecorderCard">
+            <div class="cardLabel">IMU DIAGNOSTIC</div>
+
+            <div id="diagnosticInstruction" class="rideStatus">
+                Calibrate normally, then press Run IMU Diagnostic
+            </div>
+
+            <div id="diagnosticCountdown" class="rideTimer">
+                --
+            </div>
+
+            <div id="diagnosticProgress" class="cardStatus">
+                Not running
+            </div>
+        </section>
 
         <div id="status">
             Press Start
@@ -297,7 +317,7 @@
 
     </main>
 
-    <script type="module" src="app.js?v=0.8.0-r16"></script>
+    <script type="module" src="app.js?v=0.8.0-r17"></script>
 
 </body>
 </html>
