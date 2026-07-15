@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.9.0";
+const APP_VERSION = "0.9.1";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -2413,7 +2413,117 @@ function recordRideSample(sensorIntervalMs)
                 latestOrientation.beta,
 
             orientation_gamma_deg:
-                latestOrientation.gamma
+                latestOrientation.gamma,
+
+            ride_phase:
+                latestSpeedKmh >= 2
+                    ? "MOVING"
+                    : "STOPPED",
+
+            absolute_lean_deg:
+                Number(
+                    filteredSignedLeanAngle.toFixed(6)
+                ),
+
+            dynamic_lean_deg:
+                safeDiagnosticNumber(
+                    latestImuResult?.leanAngle
+                ),
+
+            dynamic_minus_absolute_deg:
+                Number.isFinite(
+                    latestImuResult?.leanAngle
+                )
+                    ? Number(
+                        (
+                            latestImuResult.leanAngle -
+                            filteredSignedLeanAngle
+                        ).toFixed(6)
+                    )
+                    : "",
+
+            dynamic_rate_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.leanRate
+                ),
+
+            dynamic_confidence:
+                safeDiagnosticNumber(
+                    latestImuResult?.confidence
+                ),
+
+            dynamic_mode:
+                latestImuResult?.mode ?? "",
+
+            steering_rate_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.steeringRate
+                ),
+
+            raw_roll_rate_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.rawRollRate
+                ),
+
+            raw_steering_rate_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.rawSteeringRate
+                ),
+
+            omega_forward_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.omegaForward
+                ),
+
+            omega_steering_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.omegaSteering
+                ),
+
+            gyro_predicted_deg:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroPredictedAngle
+                ),
+
+            dynamic_fused_deg:
+                safeDiagnosticNumber(
+                    latestImuResult?.fusedAngle
+                ),
+
+            accel_roll_deg:
+                safeDiagnosticNumber(
+                    latestImuResult?.accelerometerLean
+                ),
+
+            gyro_device_x_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroDevice?.x
+                ),
+
+            gyro_device_y_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroDevice?.y
+                ),
+
+            gyro_device_z_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroDevice?.z
+                ),
+
+            gyro_reference_x_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroReference?.x
+                ),
+
+            gyro_reference_y_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroReference?.y
+                ),
+
+            gyro_reference_z_dps:
+                safeDiagnosticNumber(
+                    latestImuResult?.gyroReference?.z
+                )
         }
     );
 
@@ -2451,7 +2561,28 @@ function downloadRideCsv()
         "gyro_gamma_dps",
         "orientation_alpha_deg",
         "orientation_beta_deg",
-        "orientation_gamma_deg"
+        "orientation_gamma_deg",
+        "ride_phase",
+        "absolute_lean_deg",
+        "dynamic_lean_deg",
+        "dynamic_minus_absolute_deg",
+        "dynamic_rate_dps",
+        "dynamic_confidence",
+        "dynamic_mode",
+        "steering_rate_dps",
+        "raw_roll_rate_dps",
+        "raw_steering_rate_dps",
+        "omega_forward_dps",
+        "omega_steering_dps",
+        "gyro_predicted_deg",
+        "dynamic_fused_deg",
+        "accel_roll_deg",
+        "gyro_device_x_dps",
+        "gyro_device_y_dps",
+        "gyro_device_z_dps",
+        "gyro_reference_x_dps",
+        "gyro_reference_y_dps",
+        "gyro_reference_z_dps"
     ];
 
     const averageSampleRateHz =
@@ -2467,6 +2598,7 @@ function downloadRideCsv()
     [
         ["metadata", "telemetry_format_version", TELEMETRY_FORMAT_VERSION],
         ["metadata", "app_version", APP_VERSION],
+        ["metadata", "dynamic_lean_telemetry", "included"],
         ["metadata", "device", detectDevice()],
         ["metadata", "user_agent", navigator.userAgent],
         [
