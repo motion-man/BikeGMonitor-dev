@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.9.2";
+const APP_VERSION = "0.9.3";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -331,6 +331,7 @@ let latestAbsoluteLeanRawDeg = null;
 let latestAbsoluteLeanFilteredDeg = 0;
 let latestAbsoluteLeanProfileIndex = null;
 let latestAbsoluteLeanProfileScoreDeg = null;
+let latestAbsoluteLeanWorldYawDeg = null;
 let latestAbsoluteLeanQuaternion =
 {
     w: null,
@@ -1300,16 +1301,16 @@ function updateLeanAngleFromOrientation()
 
     const result =
         estimateLeanFromSteeringProfile(
-            currentQuaternion,
+            currentMatrix,
+            referenceMatrix,
             savedCalibration.steeringProfile,
             forward
         );
 
     if (!result)
     {
-        leanAngleText.textContent = "N/A";
         leanStatusText.textContent =
-            "Unable to match steering profile";
+            "Orientation match rejected — holding last valid lean";
         return;
     }
 
@@ -1325,12 +1326,15 @@ function updateLeanAngleFromOrientation()
     latestAbsoluteLeanProfileScoreDeg =
         result.score;
 
+    latestAbsoluteLeanWorldYawDeg =
+        result.worldYawDifferenceDeg;
+
     latestAbsoluteLeanQuaternion =
     {
-        w: currentQuaternion.w,
-        x: currentQuaternion.x,
-        y: currentQuaternion.y,
-        z: currentQuaternion.z
+        w: result.headingAdjustedQuaternion.w,
+        x: result.headingAdjustedQuaternion.x,
+        y: result.headingAdjustedQuaternion.y,
+        z: result.headingAdjustedQuaternion.z
     };
 
     const angleDifference =
@@ -2584,6 +2588,11 @@ function recordRideSample(sensorIntervalMs)
                     latestAbsoluteLeanProfileScoreDeg
                 ),
 
+            absolute_removed_world_yaw_deg:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanWorldYawDeg
+                ),
+
             absolute_relative_quaternion_w:
                 safeDiagnosticNumber(
                     latestAbsoluteLeanQuaternion.w
@@ -2666,6 +2675,7 @@ function downloadRideCsv()
         "absolute_filtered_signed_lean_deg",
         "absolute_profile_index",
         "absolute_profile_match_error_deg",
+        "absolute_removed_world_yaw_deg",
         "absolute_relative_quaternion_w",
         "absolute_relative_quaternion_x",
         "absolute_relative_quaternion_y",
@@ -3380,13 +3390,19 @@ function principalAxisFromCovariance(covariance)
 }
 
 function estimateLeanFromSteeringProfile(
-    currentQuaternion,
+    currentWorldMatrix,
+    referenceWorldMatrix,
     steeringProfile,
     forwardAxis
 )
 {
     let bestResult = null;
     let bestScore = Infinity;
+
+    const referenceTranspose =
+        transposeMatrix3(
+            referenceWorldMatrix
+        );
 
     for (
         let profileIndex = 0;
@@ -3395,24 +3411,80 @@ function estimateLeanFromSteeringProfile(
     )
     {
         const steeringQuaternion =
-            steeringProfile[profileIndex];
+            normalizeQuaternion(
+                steeringProfile[profileIndex]
+            );
 
-        const steering =
-            normalizeQuaternion(steeringQuaternion);
+        if (!steeringQuaternion)
+        {
+            continue;
+        }
 
-        if (!steering)
+        const steeringRelativeMatrix =
+            matrix3FromQuaternion(
+                steeringQuaternion
+            );
+
+        if (!steeringRelativeMatrix)
         {
             continue;
         }
 
         /*
-         * Remove this candidate steering orientation from the current
-         * phone orientation.
+         * Reconstruct this steering sample in the world frame used
+         * during calibration. The live motorcycle may now face any
+         * compass direction, so find and remove only the additional
+         * world-Z yaw needed to align the live pose with this candidate.
+         * Candidate steering remains intact because each profile sample
+         * is aligned independently.
          */
+        const candidateWorldMatrix =
+            multiplyMatrices3(
+                referenceWorldMatrix,
+                steeringRelativeMatrix
+            );
+
+        const worldYawDifferenceDeg =
+            bestFitWorldYawDifferenceDegrees(
+                currentWorldMatrix,
+                candidateWorldMatrix
+            );
+
+        if (!Number.isFinite(worldYawDifferenceDeg))
+        {
+            continue;
+        }
+
+        const headingAdjustedWorldMatrix =
+            multiplyMatrices3(
+                worldYawMatrix3(
+                    -worldYawDifferenceDeg
+                ),
+                currentWorldMatrix
+            );
+
+        const headingAdjustedRelativeMatrix =
+            multiplyMatrices3(
+                referenceTranspose,
+                headingAdjustedWorldMatrix
+            );
+
+        const headingAdjustedQuaternion =
+            quaternionFromMatrix3(
+                headingAdjustedRelativeMatrix
+            );
+
+        if (!headingAdjustedQuaternion)
+        {
+            continue;
+        }
+
         const residual =
             multiplyQuaternions(
-                currentQuaternion,
-                conjugateQuaternion(steering)
+                headingAdjustedQuaternion,
+                conjugateQuaternion(
+                    steeringQuaternion
+                )
             );
 
         if (!residual)
@@ -3420,10 +3492,6 @@ function estimateLeanFromSteeringProfile(
             continue;
         }
 
-        /*
-         * Motorcycle lean should appear primarily as rotation around
-         * the calibrated bike-forward axis.
-         */
         const rollTwist =
             extractQuaternionTwist(
                 residual,
@@ -3433,7 +3501,9 @@ function estimateLeanFromSteeringProfile(
         const nonRollResidual =
             multiplyQuaternions(
                 residual,
-                conjugateQuaternion(rollTwist)
+                conjugateQuaternion(
+                    rollTwist
+                )
             );
 
         const score =
@@ -3448,21 +3518,160 @@ function estimateLeanFromSteeringProfile(
             bestResult =
             {
                 signedLean:
-                    signedQuaternionAngleDegrees(
-                        rollTwist,
-                        forwardAxis
+                    normalizeLeanDifference(
+                        signedQuaternionAngleDegrees(
+                            rollTwist,
+                            forwardAxis
+                        ),
+                        0
                     ),
 
                 score:
                     score,
 
                 profileIndex:
-                    profileIndex
+                    profileIndex,
+
+                worldYawDifferenceDeg:
+                    worldYawDifferenceDeg,
+
+                headingAdjustedQuaternion:
+                    headingAdjustedQuaternion
             };
         }
     }
 
+    /*
+     * A poor match must never become a convincing displayed lean.
+     * The old road failure produced residuals around 70 degrees;
+     * normal calibrated matches are only a few degrees.
+     */
+    if (
+        !bestResult ||
+        !Number.isFinite(bestResult.score) ||
+        bestResult.score > 22
+    )
+    {
+        return null;
+    }
+
     return bestResult;
+}
+
+function bestFitWorldYawDifferenceDegrees(
+    currentMatrix,
+    candidateMatrix
+)
+{
+    if (
+        !Array.isArray(currentMatrix) ||
+        currentMatrix.length !== 9 ||
+        !Array.isArray(candidateMatrix) ||
+        candidateMatrix.length !== 9
+    )
+    {
+        return NaN;
+    }
+
+    let dot = 0;
+    let cross = 0;
+
+    /*
+     * Compare the horizontal projections of all three device axes.
+     * Matrix columns are device basis vectors expressed in world axes.
+     */
+    for (let column = 0; column < 3; column++)
+    {
+        const currentX =
+            currentMatrix[column];
+
+        const currentY =
+            currentMatrix[3 + column];
+
+        const candidateX =
+            candidateMatrix[column];
+
+        const candidateY =
+            candidateMatrix[3 + column];
+
+        dot +=
+            candidateX * currentX +
+            candidateY * currentY;
+
+        cross +=
+            candidateX * currentY -
+            candidateY * currentX;
+    }
+
+    if (
+        !Number.isFinite(dot) ||
+        !Number.isFinite(cross) ||
+        Math.abs(dot) + Math.abs(cross) < 0.000001
+    )
+    {
+        return NaN;
+    }
+
+    return (
+        Math.atan2(cross, dot) *
+        180 /
+        Math.PI
+    );
+}
+
+function worldYawMatrix3(angleDegrees)
+{
+    const angleRadians =
+        angleDegrees *
+        Math.PI /
+        180;
+
+    const cosine =
+        Math.cos(angleRadians);
+
+    const sine =
+        Math.sin(angleRadians);
+
+    return [
+        cosine, -sine, 0,
+        sine, cosine, 0,
+        0, 0, 1
+    ];
+}
+
+function matrix3FromQuaternion(quaternion)
+{
+    const q =
+        normalizeQuaternion(quaternion);
+
+    if (!q)
+    {
+        return null;
+    }
+
+    const xx = q.x * q.x;
+    const yy = q.y * q.y;
+    const zz = q.z * q.z;
+    const xy = q.x * q.y;
+    const xz = q.x * q.z;
+    const yz = q.y * q.z;
+    const wx = q.w * q.x;
+    const wy = q.w * q.y;
+    const wz = q.w * q.z;
+
+    return [
+        1 - 2 * (yy + zz),
+        2 * (xy - wz),
+        2 * (xz + wy),
+
+        2 * (xy + wz),
+        1 - 2 * (xx + zz),
+        2 * (yz - wx),
+
+        2 * (xz - wy),
+        2 * (yz + wx),
+        1 - 2 * (xx + yy)
+    ];
 }
 
 function signedQuaternionAngleDegrees(
