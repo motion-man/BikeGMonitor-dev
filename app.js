@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "0.9.2";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -321,6 +321,23 @@ let diagnosticStartEpochMs = 0;
 let diagnosticPhaseIndex = 0;
 let diagnosticTimerId = null;
 let latestImuResult = null;
+
+/*
+ * Absolute Lean solver diagnostics.
+ * These values describe the exact steering-profile decision that
+ * produces the large ABSOLUTE LEAN number shown on the main screen.
+ */
+let latestAbsoluteLeanRawDeg = null;
+let latestAbsoluteLeanFilteredDeg = 0;
+let latestAbsoluteLeanProfileIndex = null;
+let latestAbsoluteLeanProfileScoreDeg = null;
+let latestAbsoluteLeanQuaternion =
+{
+    w: null,
+    x: null,
+    y: null,
+    z: null
+};
 
 
 startButton.addEventListener("click", startSensors);
@@ -1299,6 +1316,23 @@ function updateLeanAngleFromOrientation()
     const rawSignedAngle =
         result.signedLean;
 
+    latestAbsoluteLeanRawDeg =
+        rawSignedAngle;
+
+    latestAbsoluteLeanProfileIndex =
+        result.profileIndex;
+
+    latestAbsoluteLeanProfileScoreDeg =
+        result.score;
+
+    latestAbsoluteLeanQuaternion =
+    {
+        w: currentQuaternion.w,
+        x: currentQuaternion.x,
+        y: currentQuaternion.y,
+        z: currentQuaternion.z
+    };
+
     const angleDifference =
         normalizeLeanDifference(
             rawSignedAngle,
@@ -1317,6 +1351,9 @@ function updateLeanAngleFromOrientation()
     {
         filteredSignedLeanAngle = 0;
     }
+
+    latestAbsoluteLeanFilteredDeg =
+        filteredSignedLeanAngle;
 
     const absoluteAngle =
         Math.abs(filteredSignedLeanAngle);
@@ -2523,6 +2560,48 @@ function recordRideSample(sensorIntervalMs)
             gyro_reference_z_dps:
                 safeDiagnosticNumber(
                     latestImuResult?.gyroReference?.z
+                ),
+
+            absolute_raw_signed_lean_deg:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanRawDeg
+                ),
+
+            absolute_filtered_signed_lean_deg:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanFilteredDeg
+                ),
+
+            absolute_profile_index:
+                Number.isInteger(
+                    latestAbsoluteLeanProfileIndex
+                )
+                    ? latestAbsoluteLeanProfileIndex
+                    : "",
+
+            absolute_profile_match_error_deg:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanProfileScoreDeg
+                ),
+
+            absolute_relative_quaternion_w:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanQuaternion.w
+                ),
+
+            absolute_relative_quaternion_x:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanQuaternion.x
+                ),
+
+            absolute_relative_quaternion_y:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanQuaternion.y
+                ),
+
+            absolute_relative_quaternion_z:
+                safeDiagnosticNumber(
+                    latestAbsoluteLeanQuaternion.z
                 )
         }
     );
@@ -2582,7 +2661,15 @@ function downloadRideCsv()
         "gyro_device_z_dps",
         "gyro_reference_x_dps",
         "gyro_reference_y_dps",
-        "gyro_reference_z_dps"
+        "gyro_reference_z_dps",
+        "absolute_raw_signed_lean_deg",
+        "absolute_filtered_signed_lean_deg",
+        "absolute_profile_index",
+        "absolute_profile_match_error_deg",
+        "absolute_relative_quaternion_w",
+        "absolute_relative_quaternion_x",
+        "absolute_relative_quaternion_y",
+        "absolute_relative_quaternion_z"
     ];
 
     const averageSampleRateHz =
@@ -2599,6 +2686,7 @@ function downloadRideCsv()
         ["metadata", "telemetry_format_version", TELEMETRY_FORMAT_VERSION],
         ["metadata", "app_version", APP_VERSION],
         ["metadata", "dynamic_lean_telemetry", "included"],
+        ["metadata", "absolute_lean_solver_telemetry", "included"],
         ["metadata", "device", detectDevice()],
         ["metadata", "user_agent", navigator.userAgent],
         [
@@ -3300,8 +3388,15 @@ function estimateLeanFromSteeringProfile(
     let bestResult = null;
     let bestScore = Infinity;
 
-    for (const steeringQuaternion of steeringProfile)
+    for (
+        let profileIndex = 0;
+        profileIndex < steeringProfile.length;
+        profileIndex++
+    )
     {
+        const steeringQuaternion =
+            steeringProfile[profileIndex];
+
         const steering =
             normalizeQuaternion(steeringQuaternion);
 
@@ -3358,7 +3453,11 @@ function estimateLeanFromSteeringProfile(
                         forwardAxis
                     ),
 
-                score: score
+                score:
+                    score,
+
+                profileIndex:
+                    profileIndex
             };
         }
     }
