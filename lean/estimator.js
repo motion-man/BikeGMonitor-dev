@@ -2,7 +2,7 @@ const LeanEstimator =
 {
     calibrated: false,
 
-    rollAngleDeg: 0,
+    dynamicLeanDeg: 0,
     previousTimestampMs: null,
 
     forwardAxis:
@@ -13,30 +13,31 @@ const LeanEstimator =
     },
 
     steeringAxis: null,
-    uprightGravity: null,
 
     lastSteeringRateDegPerSecond: 0,
-    lastIntegrationWeight: 1,
     lastRawRollRateDegPerSecond: 0,
     lastRawSteeringRateDegPerSecond: 0,
     lastOmegaForwardDegPerSecond: 0,
     lastOmegaSteeringDegPerSecond: 0,
-    lastAccelerometerLeanDeg: null,
+
     lastGyroPredictedAngleDeg: 0,
     lastFusedAngleDeg: 0,
+
     lastGyroDevice:
     {
         x: 0,
         y: 0,
         z: 0
     },
+
     lastGyroReference:
     {
         x: 0,
         y: 0,
         z: 0
     },
-    lastMode: "GYRO",
+
+    lastMode: "REFERENCE",
 
     calibrate(sensorData)
     {
@@ -54,12 +55,10 @@ const LeanEstimator =
             sensorData?.steeringAxis
         );
 
-        this.uprightGravity =
-            this.normalizeVector(
-                sensorData?.uprightGravity
-            );
-
-        this.rollAngleDeg = 0;
+        this.dynamicLeanDeg =
+            Number.isFinite(sensorData?.absoluteLeanDeg)
+                ? sensorData.absoluteLeanDeg
+                : 0;
 
         this.previousTimestampMs =
             Number.isFinite(sensorData?.timestamp)
@@ -89,45 +88,31 @@ const LeanEstimator =
 
     setSteeringAxis(axis)
     {
-        const normalized =
+        this.steeringAxis =
             this.normalizeVector(axis);
 
-        this.steeringAxis =
-            normalized;
+        return this.steeringAxis !== null;
+    },
 
-        return normalized !== null;
+    zeroAngle(timestampMs = null)
+    {
+        this.dynamicLeanDeg = 0;
+
+        this.previousTimestampMs =
+            Number.isFinite(timestampMs)
+                ? timestampMs
+                : null;
+
+        return {
+            success: this.calibrated
+        };
     },
 
     update(sensorData)
     {
         if (!this.calibrated)
         {
-            return {
-                leanAngle: 0,
-                leanRate: 0,
-                steeringRate: 0,
-                rawRollRate: 0,
-                rawSteeringRate: 0,
-                omegaForward: 0,
-                omegaSteering: 0,
-                accelerometerLean: null,
-                gyroPredictedAngle: 0,
-                fusedAngle: 0,
-                gyroDevice:
-                {
-                    x: 0,
-                    y: 0,
-                    z: 0
-                },
-                gyroReference:
-                {
-                    x: 0,
-                    y: 0,
-                    z: 0
-                },
-                confidence: 0,
-                mode: "UNCAL"
-            };
+            return this.emptyResult();
         }
 
         const timestampMs =
@@ -162,7 +147,7 @@ const LeanEstimator =
             };
 
         let rollRateDegPerSecond = 0;
-        let confidence = 0.35;
+        let steeringRateDegPerSecond = 0;
 
         if (gyroReference)
         {
@@ -174,7 +159,7 @@ const LeanEstimator =
             rollRateDegPerSecond =
                 rates.rollRate;
 
-            this.lastSteeringRateDegPerSecond =
+            steeringRateDegPerSecond =
                 rates.steeringRate;
 
             this.lastRawRollRateDegPerSecond =
@@ -188,35 +173,27 @@ const LeanEstimator =
 
             this.lastOmegaSteeringDegPerSecond =
                 rates.omegaSteering;
-
-            this.lastIntegrationWeight =
-                this.steeringIntegrationWeight(
-                    rates.rollRate,
-                    rates.steeringRate
-                );
-
-            confidence =
-                this.steeringAxis
-                    ? 0.70
-                    : 0.50;
         }
         else
         {
-            this.lastSteeringRateDegPerSecond = 0;
             this.lastRawRollRateDegPerSecond = 0;
             this.lastRawSteeringRateDegPerSecond = 0;
             this.lastOmegaForwardDegPerSecond = 0;
             this.lastOmegaSteeringDegPerSecond = 0;
-            this.lastIntegrationWeight = 1;
         }
 
-        let accelerometerCorrectionUsed = false;
+        this.lastSteeringRateDegPerSecond =
+            steeringRateDegPerSecond;
 
-        this.lastAccelerometerLeanDeg = null;
-        this.lastGyroPredictedAngleDeg =
-            this.rollAngleDeg;
-        this.lastFusedAngleDeg =
-            this.rollAngleDeg;
+        const absoluteLeanDeg =
+            Number.isFinite(
+                sensorData?.absoluteLeanDeg
+            )
+                ? sensorData.absoluteLeanDeg
+                : null;
+
+        let predictedAngleDeg =
+            this.dynamicLeanDeg;
 
         if (
             timestampMs !== null &&
@@ -224,7 +201,10 @@ const LeanEstimator =
         )
         {
             const deltaSeconds =
-                (timestampMs - this.previousTimestampMs) /
+                (
+                    timestampMs -
+                    this.previousTimestampMs
+                ) /
                 1000;
 
             if (
@@ -233,147 +213,140 @@ const LeanEstimator =
                 deltaSeconds <= 0.25
             )
             {
-                const effectiveRollRateDegPerSecond =
-                    rollRateDegPerSecond;
-
-                const predictedAngleDeg =
-                    this.rollAngleDeg +
-                    effectiveRollRateDegPerSecond *
+                predictedAngleDeg =
+                    this.dynamicLeanDeg +
+                    rollRateDegPerSecond *
                     deltaSeconds;
 
-                const accelerationForLean =
-                    this.validVector(
-                        sensorData?.accel
-                    );
-
-                const accelerometerLeanDeg =
-                    this.accelerometerLeanDeg(
-                        accelerationForLean
-                    );
-
-                this.lastAccelerometerLeanDeg =
-                    accelerometerLeanDeg;
-
-                this.lastGyroPredictedAngleDeg =
-                    predictedAngleDeg;
-
-                const totalG =
-                    this.vectorMagnitude(
-                        sensorData?.accel
-                    ) /
-                    9.80665;
-
-                const linearAccelerationG =
-                    this.vectorMagnitude(
-                        sensorData?.linearAccel
-                    ) /
-                    9.80665;
-
-                const accelerometerReliable =
-                    Number.isFinite(accelerometerLeanDeg) &&
-                    Number.isFinite(totalG) &&
-                    totalG >= 0.92 &&
-                    totalG <= 1.08 &&
-                    Number.isFinite(linearAccelerationG) &&
-                    linearAccelerationG <= 0.12 &&
-                    Math.abs(rollRateDegPerSecond) <= 25 &&
-                    Math.abs(
-                        this.angleDifferenceDeg(
-                            accelerometerLeanDeg,
-                            predictedAngleDeg
-                        )
-                    ) <= 12;
-
-                if (accelerometerReliable)
+                if (absoluteLeanDeg !== null)
                 {
                     /*
-                     * Slow complementary correction:
-                     * gyro supplies immediate response; gravity only
-                     * removes long-term drift under calm conditions.
+                     * Gyro supplies the immediate response.
+                     * The steering-profile result supplies the
+                     * long-term absolute reference.
+                     *
+                     * During stronger steering, correction becomes
+                     * faster so steering leakage cannot accumulate
+                     * into a persistent offset.
                      */
-                    const correctionWeight =
-                        Math.min(
-                            0.012,
-                            deltaSeconds * 0.35
+                    const steeringMagnitude =
+                        Math.abs(
+                            steeringRateDegPerSecond
                         );
 
-                    this.rollAngleDeg =
+                    const correctionRatePerSecond =
+                        steeringMagnitude >= 8
+                            ? 8.0
+                            : (
+                                steeringMagnitude >= 3
+                                    ? 4.0
+                                    : 1.8
+                            );
+
+                    const correctionWeight =
+                        Math.min(
+                            0.35,
+                            deltaSeconds *
+                            correctionRatePerSecond
+                        );
+
+                    this.dynamicLeanDeg =
                         predictedAngleDeg +
                         correctionWeight *
                         this.angleDifferenceDeg(
-                            accelerometerLeanDeg,
+                            absoluteLeanDeg,
                             predictedAngleDeg
                         );
 
-                    accelerometerCorrectionUsed = true;
+                    this.lastMode =
+                        steeringMagnitude >= 3
+                            ? "STEER REF"
+                            : "REFERENCE";
                 }
                 else
                 {
-                    this.rollAngleDeg =
+                    this.dynamicLeanDeg =
                         predictedAngleDeg;
-                }
 
-                this.lastFusedAngleDeg =
-                    this.rollAngleDeg;
+                    this.lastMode =
+                        "GYRO ONLY";
+                }
             }
         }
 
-        this.previousTimestampMs = timestampMs;
+        this.previousTimestampMs =
+            timestampMs;
 
-        if (Math.abs(this.rollAngleDeg) < 0.05)
+        if (Math.abs(this.dynamicLeanDeg) < 0.05)
         {
-            this.rollAngleDeg = 0;
+            this.dynamicLeanDeg = 0;
         }
+
+        this.lastGyroPredictedAngleDeg =
+            predictedAngleDeg;
 
         this.lastFusedAngleDeg =
-            this.rollAngleDeg;
+            this.dynamicLeanDeg;
 
-        if (accelerometerCorrectionUsed)
-        {
-            confidence =
-                Math.max(
-                    confidence,
-                    0.82
-                );
-        }
+        const confidence =
+            absoluteLeanDeg !== null
+                ? (
+                    Math.abs(
+                        steeringRateDegPerSecond
+                    ) >= 3
+                        ? 0.90
+                        : 0.86
+                )
+                : 0.55;
 
-        if (this.lastIntegrationWeight < 0.95)
-        {
-            this.lastMode = "STEER";
-        }
-        else if (accelerometerCorrectionUsed)
-        {
-            this.lastMode = "FUSED";
-        }
-        else
-        {
-            this.lastMode = "GYRO";
-        }
+        /*
+         * Accelerometer lean is intentionally not used in v0.9.0.
+         * Keep the field for the existing diagnostic UI/CSV schema.
+         */
+        const accelerometerLeanDeg =
+            this.accelerometerLeanDeg(
+                sensorData?.accel
+            );
 
         return {
-            leanAngle: this.rollAngleDeg,
-            leanRate: rollRateDegPerSecond,
+            leanAngle:
+                this.dynamicLeanDeg,
+
+            leanRate:
+                rollRateDegPerSecond,
+
             steeringRate:
-                this.lastSteeringRateDegPerSecond,
+                steeringRateDegPerSecond,
+
             rawRollRate:
                 this.lastRawRollRateDegPerSecond,
+
             rawSteeringRate:
                 this.lastRawSteeringRateDegPerSecond,
+
             omegaForward:
                 this.lastOmegaForwardDegPerSecond,
+
             omegaSteering:
                 this.lastOmegaSteeringDegPerSecond,
+
             accelerometerLean:
-                this.lastAccelerometerLeanDeg,
+                accelerometerLeanDeg,
+
             gyroPredictedAngle:
                 this.lastGyroPredictedAngleDeg,
+
             fusedAngle:
                 this.lastFusedAngleDeg,
+
             gyroDevice:
                 this.lastGyroDevice,
+
             gyroReference:
                 this.lastGyroReference,
+
             confidence,
+
             mode:
                 this.lastMode
         };
@@ -384,22 +357,21 @@ const LeanEstimator =
         const forward =
             this.forwardAxis;
 
+        const omegaForward =
+            this.dot(
+                angularVelocityReference,
+                forward
+            );
+
         if (!this.steeringAxis)
         {
-            const omegaForward =
-                this.dot(
-                    angularVelocityReference,
-                    forward
-                );
-
             return {
                 rollRate:
                     omegaForward,
 
                 steeringRate: 0,
 
-                omegaForward:
-                    omegaForward,
+                omegaForward,
 
                 omegaSteering: 0
             };
@@ -408,15 +380,6 @@ const LeanEstimator =
         const steering =
             this.steeringAxis;
 
-        /*
-         * Resolve:
-         *
-         *   omega = rollRate * forwardAxis
-         *         + steeringRate * steeringAxis
-         *
-         * These values are diagnostic in r10. Integration behaviour
-         * is otherwise unchanged from r9.
-         */
         const coupling =
             this.dot(
                 forward,
@@ -424,13 +387,9 @@ const LeanEstimator =
             );
 
         const denominator =
-            1 - coupling * coupling;
-
-        const omegaForward =
-            this.dot(
-                angularVelocityReference,
-                forward
-            );
+            1 -
+            coupling *
+            coupling;
 
         const omegaSteering =
             this.dot(
@@ -450,11 +409,9 @@ const LeanEstimator =
                 steeringRate:
                     omegaSteering,
 
-                omegaForward:
-                    omegaForward,
+                omegaForward,
 
-                omegaSteering:
-                    omegaSteering
+                omegaSteering
             };
         }
 
@@ -462,119 +419,62 @@ const LeanEstimator =
             rollRate:
                 (
                     omegaForward -
-                    coupling * omegaSteering
+                    coupling *
+                    omegaSteering
                 ) /
                 denominator,
 
             steeringRate:
                 (
                     omegaSteering -
-                    coupling * omegaForward
+                    coupling *
+                    omegaForward
                 ) /
                 denominator,
 
-            omegaForward:
-                omegaForward,
+            omegaForward,
 
-            omegaSteering:
-                omegaSteering
+            omegaSteering
         };
-    },
-
-    steeringIntegrationWeight(
-        rollRateDegPerSecond,
-        steeringRateDegPerSecond
-    )
-    {
-        const rollMagnitude =
-            Math.abs(
-                rollRateDegPerSecond
-            );
-
-        const steeringMagnitude =
-            Math.abs(
-                steeringRateDegPerSecond
-            );
-
-        /*
-         * Do not gate tiny sensor noise.
-         */
-        if (steeringMagnitude < 2)
-        {
-            return 1;
-        }
-
-        const totalMotion =
-            rollMagnitude +
-            steeringMagnitude;
-
-        if (totalMotion < 0.000001)
-        {
-            return 1;
-        }
-
-        const steeringShare =
-            steeringMagnitude /
-            totalMotion;
-
-        /*
-         * Roll-dominant motion is integrated normally.
-         * As steering becomes dominant, progressively reduce how much
-         * of the solved roll rate is allowed into the angle integrator.
-         */
-        if (steeringShare <= 0.50)
-        {
-            return 1;
-        }
-
-        if (steeringShare >= 0.75)
-        {
-            return 0.10;
-        }
-
-        const fraction =
-            (
-                steeringShare -
-                0.50
-            ) /
-            0.25;
-
-        return (
-            1 -
-            fraction * 0.90
-        );
     },
 
     accelerometerLeanDeg(acceleration)
     {
-        const currentGravity =
+        /*
+         * Diagnostic only. Never used to correct Dynamic Lean.
+         */
+        const gravity =
             this.normalizeVector(
                 acceleration
             );
 
-        if (
-            !currentGravity ||
-            !this.uprightGravity
-        )
+        if (!gravity)
         {
             return null;
         }
 
+        const worldUp =
+        {
+            x: 0,
+            y: 0,
+            z: 1
+        };
+
         const referencePlane =
             this.projectPerpendicular(
-                this.uprightGravity,
+                worldUp,
                 this.forwardAxis
             );
 
-        const currentPlane =
+        const gravityPlane =
             this.projectPerpendicular(
-                currentGravity,
+                gravity,
                 this.forwardAxis
             );
 
         if (
             !referencePlane ||
-            !currentPlane
+            !gravityPlane
         )
         {
             return null;
@@ -584,7 +484,7 @@ const LeanEstimator =
             this.dot(
                 this.cross(
                     referencePlane,
-                    currentPlane
+                    gravityPlane
                 ),
                 this.forwardAxis
             );
@@ -592,7 +492,7 @@ const LeanEstimator =
         const cosine =
             this.dot(
                 referencePlane,
-                currentPlane
+                gravityPlane
             );
 
         return (
@@ -617,57 +517,27 @@ const LeanEstimator =
             {
                 x:
                     vector.x -
-                    axis.x * projection,
+                    axis.x *
+                    projection,
 
                 y:
                     vector.y -
-                    axis.y * projection,
+                    axis.y *
+                    projection,
 
                 z:
                     vector.z -
-                    axis.z * projection
+                    axis.z *
+                    projection
             }
         );
-    },
-
-    vectorMagnitude(vector)
-    {
-        const valid =
-            this.validVector(vector);
-
-        if (!valid)
-        {
-            return NaN;
-        }
-
-        return Math.sqrt(
-            valid.x * valid.x +
-            valid.y * valid.y +
-            valid.z * valid.z
-        );
-    },
-
-    cross(a, b)
-    {
-        return {
-            x:
-                a.y * b.z -
-                a.z * b.y,
-
-            y:
-                a.z * b.x -
-                a.x * b.z,
-
-            z:
-                a.x * b.y -
-                a.y * b.x
-        };
     },
 
     angleDifferenceDeg(target, current)
     {
         let difference =
-            target - current;
+            target -
+            current;
 
         while (difference > 180)
         {
@@ -713,9 +583,12 @@ const LeanEstimator =
 
         const magnitude =
             Math.sqrt(
-                valid.x * valid.x +
-                valid.y * valid.y +
-                valid.z * valid.z
+                valid.x *
+                valid.x +
+                valid.y *
+                valid.y +
+                valid.z *
+                valid.z
             );
 
         if (
@@ -742,49 +615,61 @@ const LeanEstimator =
         );
     },
 
-    zeroAngle(timestampMs = null)
+    cross(a, b)
     {
-        this.rollAngleDeg = 0;
-
-        this.previousTimestampMs =
-            Number.isFinite(timestampMs)
-                ? timestampMs
-                : null;
-
         return {
-            success: this.calibrated
+            x:
+                a.y * b.z -
+                a.z * b.y,
+
+            y:
+                a.z * b.x -
+                a.x * b.z,
+
+            z:
+                a.x * b.y -
+                a.y * b.x
+        };
+    },
+
+    emptyResult()
+    {
+        return {
+            leanAngle: 0,
+            leanRate: 0,
+            steeringRate: 0,
+            rawRollRate: 0,
+            rawSteeringRate: 0,
+            omegaForward: 0,
+            omegaSteering: 0,
+            accelerometerLean: null,
+            gyroPredictedAngle: 0,
+            fusedAngle: 0,
+
+            gyroDevice:
+            {
+                x: 0,
+                y: 0,
+                z: 0
+            },
+
+            gyroReference:
+            {
+                x: 0,
+                y: 0,
+                z: 0
+            },
+
+            confidence: 0,
+            mode: "UNCAL"
         };
     },
 
     reset()
     {
         this.calibrated = false;
-        this.rollAngleDeg = 0;
+        this.dynamicLeanDeg = 0;
         this.previousTimestampMs = null;
-        this.steeringAxis = null;
-        this.uprightGravity = null;
-        this.lastSteeringRateDegPerSecond = 0;
-        this.lastIntegrationWeight = 1;
-        this.lastRawRollRateDegPerSecond = 0;
-        this.lastRawSteeringRateDegPerSecond = 0;
-        this.lastOmegaForwardDegPerSecond = 0;
-        this.lastOmegaSteeringDegPerSecond = 0;
-        this.lastAccelerometerLeanDeg = null;
-        this.lastGyroPredictedAngleDeg = 0;
-        this.lastFusedAngleDeg = 0;
-        this.lastGyroDevice =
-        {
-            x: 0,
-            y: 0,
-            z: 0
-        };
-        this.lastGyroReference =
-        {
-            x: 0,
-            y: 0,
-            z: 0
-        };
-        this.lastMode = "GYRO";
 
         this.forwardAxis =
         {
@@ -792,6 +677,33 @@ const LeanEstimator =
             y: 1,
             z: 0
         };
+
+        this.steeringAxis = null;
+
+        this.lastSteeringRateDegPerSecond = 0;
+        this.lastRawRollRateDegPerSecond = 0;
+        this.lastRawSteeringRateDegPerSecond = 0;
+        this.lastOmegaForwardDegPerSecond = 0;
+        this.lastOmegaSteeringDegPerSecond = 0;
+        this.lastGyroPredictedAngleDeg = 0;
+        this.lastFusedAngleDeg = 0;
+
+        this.lastGyroDevice =
+        {
+            x: 0,
+            y: 0,
+            z: 0
+        };
+
+        this.lastGyroReference =
+        {
+            x: 0,
+            y: 0,
+            z: 0
+        };
+
+        this.lastMode =
+            "REFERENCE";
     }
 };
 

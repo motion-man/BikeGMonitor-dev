@@ -2,7 +2,7 @@ import LeanEstimator from "./lean/estimator.js";const GRAVITY = 9.80665;
 const CALIBRATION_SAMPLE_COUNT = 100;
 const CALIBRATION_STORAGE_KEY = "bikeGMonitorCalibrationV4";
 const TELEMETRY_FORMAT_VERSION = "1.0";
-const APP_VERSION = "0.8.0-r17";
+const APP_VERSION = "0.9.0";
 
 const startButton = document.getElementById("startButton");
 const calibrateButton = document.getElementById("calibrateButton");
@@ -417,12 +417,8 @@ async function startSensors()
                         savedCalibration.forwardVector,
                     steeringAxis:
                         savedCalibration.steeringAxis,
-                    uprightGravity:
-                    {
-                        x: savedCalibration.x,
-                        y: savedCalibration.y,
-                        z: savedCalibration.z
-                    }
+                    absoluteLeanDeg:
+                        filteredSignedLeanAngle
                 }
             );
         }
@@ -627,7 +623,16 @@ function handleMotion(event)
 
                 accuracyM:
                     latestGpsAccuracyM
-            }
+            },
+
+            absoluteLeanDeg:
+                savedCalibration &&
+                Array.isArray(
+                    savedCalibration.steeringProfile
+                ) &&
+                savedCalibration.steeringProfile.length >= 10
+                    ? filteredSignedLeanAngle
+                    : null
         }
     );
 
@@ -1103,12 +1108,8 @@ function finishCalibration()
                 timestamp: performance.now(),
                 forwardAxis: calibration.forwardVector,
                 steeringAxis: calibration.steeringAxis,
-                uprightGravity:
-                {
-                    x: calibration.x,
-                    y: calibration.y,
-                    z: calibration.z
-                }
+                absoluteLeanDeg:
+                    filteredSignedLeanAngle
             }
         );
         filteredSignedLeanAngle = 0;
@@ -1349,7 +1350,7 @@ function updateLeanAngleFromOrientation()
     }
 
     leanStatusText.textContent =
-        "Steering-profile compensated lean";
+        "Absolute steering-profile lean";
 }
 
 

@@ -20,14 +20,14 @@
     <header class="appHeader">
         <h1>Bike G Monitor</h1>
         <div class="branchLabel">
-            Development · v0.8.0-r17
+            Development · v0.9.0
         </div>
     </header>
 
     <main class="dashboard">
 
         <section class="heroCard">
-            <div class="cardLabel">CURRENT LEAN</div>
+            <div class="cardLabel">ABSOLUTE LEAN</div>
 
             <div class="leanValue">
                 <span id="leanAngle">N/A</span>
@@ -49,7 +49,7 @@
             </div>
 
             <div class="metricCard">
-                <div class="cardLabel">IMU ENGINE</div>
+                <div class="cardLabel">DYNAMIC LEAN</div>
                 <div id="imuLean" class="metricValue">0.0°</div>
 
                 <div class="peakLine">
@@ -65,11 +65,7 @@
                 </div>
 
                 <div class="peakLine">
-                    MODE <span id="imuMode">GYRO</span>
-                </div>
-
-                <div class="peakLine">
-                    ACCEL FRAME <span>DEVICE</span>
+                    MODE <span id="imuMode">REFERENCE</span>
                 </div>
 
                 <div class="peakLine">
@@ -317,7 +313,7 @@
 
     </main>
 
-    <script type="module" src="app.js?v=0.8.0-r17"></script>
+    <script type="module" src="app.js?v=0.9.0"></script>
 
 </body>
 </html>
